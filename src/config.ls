@@ -14,10 +14,15 @@ module mqtt.config;
 import std.bytes;
 
 pub fn flag_table() -> [] &static [byte] {
-    return "port||nat|none|1883|the TCP port to listen on;max-connections||nat|none|1024|connections at once, at most;max-packet||nat|none|16384|largest packet in bytes, header included;queue-bytes||nat|none|32768|bytes of outbound queue per session;queue-messages||nat|none|64|messages in one session's outbound queue;inflight||nat|none|16|QoS 1 messages sent and not yet acknowledged, per session;offline-sessions||nat|none|256|sessions kept for clients that are not connected;subscriptions-per-client||nat|none|32|subscriptions one client may hold;subscriptions-total||nat|none|16384|subscriptions in all;max-nodes||nat|none|65536|nodes in the subscription trie;topic-max||nat|none|1024|longest topic name or filter in bytes;topic-levels||nat|none|16|most levels in a topic name or filter;retained-messages||nat|none|1024|retained messages kept;retained-slot-bytes||nat|none|1024|bytes one retained message may take, topic included;will-bytes||nat|none|1024|bytes a will message may take, topic included;client-id-max||nat|none|128|longest client identifier in bytes;connect-timeout||nat|none|10|seconds a connection may take to send CONNECT;write-stall||nat|none|30|seconds a connection may make no write progress;stats-seconds||nat|none|10|seconds between stats records, 0 for none";
+    return "port||nat|none|1883|the TCP port to listen on;max-connections||nat|none|1024|connections at once, at most;max-packet||nat|none|16384|largest packet in bytes, header included;queue-bytes||nat|none|32768|bytes of outbound queue per session;queue-messages||nat|none|64|messages in one session's outbound queue;inflight||nat|none|16|QoS 1 messages sent and not yet acknowledged, per session;offline-sessions||nat|none|256|sessions kept for clients that are not connected;subscriptions-per-client||nat|none|32|subscriptions one client may hold;subscriptions-total||nat|none|16384|subscriptions in all;max-nodes||nat|none|65536|nodes in the subscription trie;topic-max||nat|none|1024|longest topic name or filter in bytes;topic-levels||nat|none|16|most levels in a topic name or filter;retained-messages||nat|none|1024|retained messages kept;retained-slot-bytes||nat|none|1024|bytes one retained message may take, topic included;will-bytes||nat|none|1024|bytes a will message may take, topic included;client-id-max||nat|none|128|longest client identifier in bytes;connect-timeout||nat|none|10|seconds a connection may take to send CONNECT;write-stall||nat|none|30|seconds a connection may make no write progress;stats-seconds||nat|none|10|seconds between stats records, 0 for none;format||choice:ndjson/text|none|ndjson|ndjson for a program, text for a person: the same records as lines of key=value, lossy by design, never to be parsed";
 }
 
+// Flags in the table; the first `numeric` are bounds with a limits entry, the last is `format`.
 pub fn flags() -> [] int {
+    return 20;
+}
+
+pub fn numeric() -> [] int {
     return 19;
 }
 
@@ -165,4 +170,8 @@ pub fn memory[&g](cfg: &g [int]) -> [] int {
     total = total + cfg[12] * (cfg[13] + 32);
     total = total + cfg[9] * (80 + 64 + 16) + cfg[8] * 48;
     return total;
+}
+
+pub fn i_format() -> [] int {
+    return 19;
 }

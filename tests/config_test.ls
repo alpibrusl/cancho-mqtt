@@ -6,7 +6,7 @@ import mqtt.config;
 
 pub fn test_limits_line_up_with_the_flag_table() -> [] int {
     var i = 0;
-    while i < config.flags() {
+    while i < config.numeric() {
         let flag = bytes.field(bytes.field(config.flag_table(), 59, i + 1), 124, 1);
         let limit = bytes.field(bytes.field(config.limits(), 59, i + 1), 124, 1);
         test.assert(bytes.equal(flag, limit));
@@ -18,7 +18,7 @@ pub fn test_limits_line_up_with_the_flag_table() -> [] int {
     }
     // One more entry than flags would mean the tables disagree about the count.
     test.assert_eq(bytes.count_byte(config.flag_table(), 59), config.flags() - 1);
-    test.assert_eq(bytes.count_byte(config.limits(), 59), config.flags() - 1);
+    test.assert_eq(bytes.count_byte(config.limits(), 59), config.numeric() - 1);
     return 0;
 }
 
@@ -43,5 +43,6 @@ pub fn test_indices_name_their_flags() -> [] int {
     test.assert(bytes.equal(bytes.field(bytes.field(table, 59, config.i_connect_timeout() + 1), 124, 1), "connect-timeout"));
     test.assert(bytes.equal(bytes.field(bytes.field(table, 59, config.i_write_stall() + 1), 124, 1), "write-stall"));
     test.assert(bytes.equal(bytes.field(bytes.field(table, 59, config.i_stats() + 1), 124, 1), "stats-seconds"));
+    test.assert(bytes.equal(bytes.field(bytes.field(table, 59, config.i_format() + 1), 124, 1), "format"));
     return 0;
 }

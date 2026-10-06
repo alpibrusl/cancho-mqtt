@@ -93,13 +93,17 @@ fn out_of_range[&h, &g, &p](heap: &!h Heap, e: fail.Errors, args: &g Args, parse
 
 // The errors as records, then an `end` record that says the stream did not complete.
 // Answers the exit status.
-fn refuse[&h, &i](heap: &!h Heap, io: &!i Io, errs: fail.Errors) -> [heap, io_write, err_write] int {
+fn refuse[&h, &i](heap: &!h Heap, io: &!i Io, errs: fail.Errors, text_mode: bool) -> [heap, io_write, err_write] int {
     var status = 1;
     var broken = false;
     borrow errs as &er in {
         status = fail.exit_code(er);
-        broken = !out.error_records(heap, io, er, 0);
-        if !broken {
+        if text_mode {
+            out.say_errors(io, "mqtt", er);
+        } else {
+            broken = !out.error_records(heap, io, er, 0);
+        }
+        if !broken && !text_mode {
             var w = out.end_open(heap, "mqtt", "mqtt.v1", false, false);
             w = json.put_key(heap, w, "errors");
             w = json.put_int(heap, w, fail.count(er));
@@ -120,14 +124,14 @@ fn refuse[&h, &i](heap: &!h Heap, io: &!i Io, errs: fail.Errors) -> [heap, io_wr
 // ---- the command line ----------------------------------------------------
 
 // `mqtt rules`: every connection-level rule, then the end record.
-fn list_rules[&h, &i](heap: &!h Heap, io: &!i Io) -> [heap, io_write, err_write] int {
+fn list_rules[&h, &i](heap: &!h Heap, io: &!i Io, text_mode: bool) -> [heap, io_write, err_write] int {
     var broken = false;
     var r = 0;
     while r < rules.count() && !broken {
-        broken = !logs.rule_record(heap, io, r);
+        broken = !logs.rule_record(heap, io, text_mode, r);
         r = r + 1;
     }
-    if !broken {
+    if !broken && !text_mode {
         var w = out.end_open(heap, "mqtt", "mqtt.v1", true, true);
         w = json.put_key(heap, w, "rules");
         w = json.put_int(heap, w, rules.count());
@@ -150,31 +154,34 @@ fn configure[&h, &g, &i, &c](heap: &!h Heap, args: &g Args, io: &!i Io, cfg: &!c
     if which != 0 {
         return describe.answer(heap, io, which, tool(), embedded());
     }
-    if arg_count(args) == 2 && bytes.equal(arg(args, 1), "rules") {
-        return list_rules(heap, io);
-    }
     let table = config.flag_table();
     let (parsed, found) = cli.parse(heap, args, table, fail.empty_in(heap, own_rules()));
     var e = found;
     var parse_errors = 0;
     var ranged = true;
+    var text_mode = false;
+    var listing = false;
     borrow e as &er in {
         parse_errors = fail.count(er);
     }
     borrow parsed as &pr in {
         let n = cli.operand_count(pr);
+        text_mode = bytes.equal(cli.text(args, pr, table, "format"), "text");
         // An operand error that follows from an unknown flag is not reported twice.
         if parse_errors == 0 {
             if n == 0 {
                 e = problem(heap, e, "args.missing-operand", "mqtt needs a command", "mqtt serve, mqtt introspect, mqtt skill or mqtt rules", "operand", "COMMAND");
+            } else if bytes.equal(cli.operand(args, pr, 0), "rules") {
+                listing = true;
             } else if !bytes.equal(cli.operand(args, pr, 0), "serve") {
                 e = problem(heap, e, "args.unknown-command", "the command is not one this broker has", "mqtt serve, mqtt introspect, mqtt skill or mqtt rules", "command", cli.operand(args, pr, 0));
-            } else if n > 1 {
-                e = problem(heap, e, "args.too-many-operands", "mqtt serve takes no operands", "pass bounds as flags", "operand", "COMMAND");
+            }
+            if n > 1 {
+                e = problem(heap, e, "args.too-many-operands", "a command takes no operands", "pass bounds as flags", "operand", "COMMAND");
             }
         }
         var i = 0;
-        while i < config.flags() {
+        while i < config.numeric() {
             let v = cli.nat(args, pr, table, cli.name_of(table, i));
             if v < config.minimum_of(i) || v > config.ceiling_of(i) {
                 e = out_of_range(heap, e, args, pr, i, v);
@@ -185,6 +192,10 @@ fn configure[&h, &g, &i, &c](heap: &!h Heap, args: &g Args, io: &!i Io, cfg: &!c
         }
     }
     cli.drop(heap, parsed);
+    cfg[config.i_format()] = 0;
+    if text_mode {
+        cfg[config.i_format()] = 1;
+    }
     // A message must fit in a queue beside its entry header and the room kept for
     // control packets.
     if ranged && parse_errors == 0 && cfg[config.i_queue_bytes()] < cfg[config.i_packet()] + 8 + 256 {
@@ -195,9 +206,12 @@ fn configure[&h, &g, &i, &c](heap: &!h Heap, args: &g Args, io: &!i Io, cfg: &!c
         count = fail.count(er);
     }
     if count > 0 {
-        return refuse(heap, io, e);
+        return refuse(heap, io, e, text_mode);
     }
     fail.drop(heap, e);
+    if listing {
+        return list_rules(heap, io, text_mode);
+    }
     return 0 - 1;
 }
 
@@ -217,7 +231,8 @@ fn serve[&h, &g, &k, &l, &w, &i](heap: &!h Heap, cfg: &g [int], clock: &k Clock,
             borrow mut b as &!bw in {
                 poller_add_signals(broker.poller(bw), watch, token);
             }
-            var ok = logs.listening(heap, io, cfg[config.i_port()], cfg[config.i_connections()], cfg[config.i_packet()], config.memory(cfg), 0);
+            let text = cfg[config.i_format()] == 1;
+            var ok = logs.listening(heap, io, text, cfg[config.i_port()], cfg[config.i_connections()], cfg[config.i_packet()], config.memory(cfg), 0);
             let limiter = box_slice(heap, 2 * rules.count(), 0);
             var last_stats = 0;
             var running = ok;
@@ -227,7 +242,7 @@ fn serve[&h, &g, &k, &l, &w, &i](heap: &!h Heap, cfg: &g [int], clock: &k Clock,
                 let now = ms / 1000;
                 borrow mut b as &!bw in {
                     borrow mut limiter as &!lm in {
-                        if !logs.drain(heap, io, bw, contents(lm), now) {
+                        if !logs.drain(heap, io, text, bw, contents(lm), now, ms) {
                             ok = false;
                         }
                     }
@@ -235,7 +250,7 @@ fn serve[&h, &g, &k, &l, &w, &i](heap: &!h Heap, cfg: &g [int], clock: &k Clock,
                 if ok && cfg[config.i_stats()] > 0 && now - last_stats >= cfg[config.i_stats()] {
                     last_stats = now;
                     borrow b as &br in {
-                        if !logs.stats(heap, io, br, ms) {
+                        if !logs.stats(heap, io, text, br, ms) {
                             ok = false;
                         }
                     }
@@ -248,15 +263,20 @@ fn serve[&h, &g, &k, &l, &w, &i](heap: &!h Heap, cfg: &g [int], clock: &k Clock,
                 }
             }
             var status = 0;
-            // The counters as they stand when it stopped, then the end record.
+            // Repeats still held back, the counters as they stand, then the end record.
             if ok {
-                borrow b as &br in {
-                    ok = logs.stats(heap, io, br, clock_ms(clock) - t0);
+                borrow mut limiter as &!lm in {
+                    ok = logs.drain_all(heap, io, text, contents(lm), clock_ms(clock) - t0);
                 }
             }
             if ok {
                 borrow b as &br in {
-                    ok = logs.end_served(heap, io, br, clock_ms(clock) - t0);
+                    ok = logs.stats(heap, io, text, br, clock_ms(clock) - t0);
+                }
+            }
+            if ok {
+                borrow b as &br in {
+                    ok = logs.end_served(heap, io, text, br, clock_ms(clock) - t0);
                 }
             }
             if !ok || !out.flushed(io) {
@@ -270,14 +290,14 @@ fn serve[&h, &g, &k, &l, &w, &i](heap: &!h Heap, cfg: &g [int], clock: &k Clock,
         Polling::Failed(e) => {
             var errs = fail.empty_in(heap, own_rules());
             errs = problem(heap, errs, "io.poller-failed", "the operating system could not create the poller", "", "errno", "poller");
-            return refuse(heap, io, errs);
+            return refuse(heap, io, errs, cfg[config.i_format()] == 1);
         }
     }
 }
 
 // `tcp_listen` failed with `errno`: the port is in use (EADDRINUSE: 98 on Linux, 48
 // on macOS), not allowed to this user (EACCES), or something else.
-fn listen_failed[&h, &i](heap: &!h Heap, io: &!i Io, port: int, errno: int) -> [heap, io_write, err_write] int {
+fn listen_failed[&h, &i](heap: &!h Heap, io: &!i Io, port: int, errno: int, text_mode: bool) -> [heap, io_write, err_write] int {
     var rule: &static [byte] = "io.bind-failed";
     var message: &static [byte] = "the operating system refused to listen on the port";
     var hint: &static [byte] = "";
@@ -297,7 +317,7 @@ fn listen_failed[&h, &i](heap: &!h Heap, io: &!i Io, port: int, errno: int) -> [
     w = json.put_int(heap, w, port);
     w = json.put_key(heap, w, "errno");
     w = json.put_int(heap, w, errno);
-    return refuse(heap, io, fail.add(heap, fail.empty_in(heap, own_rules()), w));
+    return refuse(heap, io, fail.add(heap, fail.empty_in(heap, own_rules()), w), text_mode);
 }
 
 fn main(world: World) -> [] int {
@@ -340,7 +360,7 @@ fn main(world: World) -> [] int {
                                                 Watching::Failed(e) => {
                                                     var errs = fail.empty_in(h, own_rules());
                                                     errs = problem(h, errs, "io.poller-failed", "the operating system could not watch for stop signals", "", "errno", "signals");
-                                                    status = refuse(h, i, errs);
+                                                    status = refuse(h, i, errs, contents(cr)[config.i_format()] == 1);
                                                 }
                                             }
                                         }
@@ -348,7 +368,7 @@ fn main(world: World) -> [] int {
                                     listener_close(listener);
                                 }
                                 Listening::Failed(e) => {
-                                    status = listen_failed(h, i, port, e);
+                                    status = listen_failed(h, i, port, e, contents(cr)[config.i_format()] == 1);
                                 }
                             }
                         }

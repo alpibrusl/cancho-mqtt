@@ -45,7 +45,7 @@ jobs:
         run: |
           sudo apt-get update -q
           sudo apt-get install -y -q mosquitto mosquitto-clients
-          pip install paho-mqtt
+          pip install paho-mqtt jsonschema
           mosquitto -h | head -1
           python3 -c "import paho.mqtt, sys; print('paho-mqtt', paho.mqtt.__version__)"
 
@@ -69,3 +69,8 @@ jobs:
 
       - name: No file over 2,000 lines (G8)
         run: python3 scripts/lines.py
+
+      - name: Conformance (G3, G8, G9), interop and differential against Mosquitto
+        run: |
+          pip install jsonschema
+          python3 -W ignore -m unittest discover -s tests/conformance -v

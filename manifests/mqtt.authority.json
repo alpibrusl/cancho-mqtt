@@ -191,6 +191,7 @@
     "i_client_id",
     "i_connect_timeout",
     "i_connections",
+    "i_format",
     "i_inflight",
     "i_levels",
     "i_nodes",
@@ -257,6 +258,7 @@
     "nearest",
     "nth",
     "number",
+    "numeric",
     "of_wire",
     "offline",
     "offline_sessions",
@@ -293,6 +295,7 @@
     "s_stride",
     "schema",
     "second_range",
+    "sentences",
     "short_of",
     "size",
     "size$int",
@@ -332,7 +335,7 @@
     "will_size",
     "write_stalled"
   ],
-  "folded_operators": 116,
+  "folded_operators": 119,
   "folded_calls": 0,
-  "functions": 425
+  "functions": 433
 }

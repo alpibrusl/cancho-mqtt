@@ -89,36 +89,47 @@ publisher cannot starve the rest. **[measure]** (benchmark cell B3).
 ## 4. Memory: sized at start, every bound has a rule
 
 All state is allocated at start from the bounds below. After start the broker allocates nothing it did not account for;
-memory growth under churn is a gate (G6). Bounds are command-line arguments with these defaults and the stated hard
-ceilings (a larger value is refused at start with `args.out-of-range`).
+memory growth under churn is a gate (G6). Every bound is a flag of `mqtt serve` (section 5a: one table drives the
+parser, `introspect` and this document's check), with the default and hard ceiling in the table; a value outside
+`[minimum, ceiling]` is refused at start with `args.out-of-range`. `tests/conformance/test_cli.py` parses this table
+and fails if a default or ceiling here differs from what `mqtt introspect` reports.
 
-| Bound | Default **[fix]** | Hard ceiling | Rule tag on overflow |
-|---|---:|---:|---|
-| Connections | 1,024 | 16,384 | `limit.connections` |
-| Packet size (whole packet incl. header) | 65,536 B | 262,144 B | `limit.packet-size` |
-| Input buffer per connection | packet size | | (same) |
-| Output ring per connection | 65,536 B | | `timeout.write-stalled` |
-| Client id length | 128 B | | `protocol.client-id-rejected` |
-| Topic name length | 1,024 B | 65,535 B | `protocol.topic-invalid` |
-| Topic levels | 16 | | `protocol.topic-invalid` |
-| Subscriptions per client | 32 | | `limit.subscriptions-per-client` |
-| Subscriptions total | 16,384 | | `limit.subscriptions-total` |
-| Per-subscriber outbound queue | 64 messages and 64 KiB | | `limit.queue` |
-| QoS 1 in-flight window per subscriber | 16 | 64 | (queues behind the window) |
-| Offline sessions kept (clean-session = 0) | 256 | | `limit.offline-sessions` |
-| Retained messages | 1,024 | | `limit.retained` |
-| Retained bytes | 1 MiB | | `limit.retained` |
-| CONNECT deadline | 10 s | | `timeout.connect` |
-| Write-stall deadline | 30 s | | `timeout.write-stalled` |
+| Bound | Flag | Default | Ceiling | Rule tag on overflow |
+|---|---|---:|---:|---|
+| Connections | `max-connections` | 1,024 | 16,384 | `limit.connections` |
+| Packet size (whole packet incl. header) | `max-packet` | 16,384 | 262,144 | `limit.packet-size` |
+| Client id length | `client-id-max` | 128 | 1,024 | `protocol.client-id-rejected` |
+| Topic name or filter length | `topic-max` | 1,024 | 65,535 | `protocol.topic-invalid` |
+| Topic levels | `topic-levels` | 16 | 64 | `protocol.topic-invalid` |
+| Subscriptions per client | `subscriptions-per-client` | 32 | 1,024 | `limit.subscriptions-per-client` |
+| Subscriptions total | `subscriptions-total` | 16,384 | 1,048,576 | `limit.subscriptions-total` |
+| Trie nodes | `max-nodes` | 65,536 | 4,194,304 | `limit.subscriptions-total` |
+| Outbound queue per session, bytes | `queue-bytes` | 32,768 | 1,048,576 | `limit.queue` |
+| Outbound queue per session, messages | `queue-messages` | 64 | 1,024 | `limit.queue` |
+| QoS 1 in-flight window per session | `inflight` | 16 | 64 | (queues behind the window) |
+| Offline sessions kept (clean-session = 0) | `offline-sessions` | 256 | 16,384 | `limit.offline-sessions` |
+| Retained messages | `retained-messages` | 1,024 | 65,536 | `limit.retained` |
+| Bytes of one retained message, topic included | `retained-slot-bytes` | 1,024 | 262,144 | `limit.retained` |
+| Bytes of a will, topic included | `will-bytes` | 1,024 | 65,536 | `limit.will-size` |
+| CONNECT deadline, seconds | `connect-timeout` | 10 | 3,600 | `timeout.connect` |
+| Write-stall deadline, seconds | `write-stall` | 30 | 86,400 | `timeout.write-stalled` |
 
-The memory the broker needs is a function of these numbers: connections x (input + output) + queues + retained
-store + the trie. `scripts/budget.py` (not yet written, issue #6) prints it for a given set of bounds, and the broker prints the same figure at
-start. The claim "sized at start" is true when RSS after a churn run stays within that figure plus a fixed runtime
+Plus `port` (1883) and `stats-seconds` (10; 0 for none), which are not bounds. Two relations are checked at start:
+`queue-bytes` must be at least `max-packet + 264` (a packet of the largest size plus its entry header and the 256
+bytes kept free for control packets must fit a queue), refused as `args.conflict`.
+
+**Corrected by building (issue #5).** An earlier draft of this section said defaults of 65,536 bytes for the packet and
+64 KiB for a queue, an "output ring per connection", and that "message payloads are held once and shared by reference
+count between every subscriber's queue". None of that is how it was built. A session's queue *is* its output (there
+is no second ring); each subscriber's queue holds its own encoded copy of every message (a subscriber costs a copy, not
+a reference), which is simple, keeps every queue's bytes bounded by its own bound, and makes a PUBLISH to a subscriber
+one `memmove` away from the socket; the price is that fan-out of a large payload to many subscribers copies it that many
+times. Sharing is a possible later optimisation, to be taken only if B1 and B2 say the copies matter. The defaults were
+lowered to 16 KiB and 32 KiB so that the tables the broker allocates at start are about 73 MiB for the default bounds
+(the `listening` record's `memory_bytes`, which is `mqtt.config.memory`, an estimate of the tables alone).
+
+The claim "sized at start" is true when RSS after a churn run stays within `memory_bytes` plus a fixed runtime
 overhead. **[measure]** (G6, issue #11).
-
-Message payloads are held once and shared by reference count between every subscriber's queue, so fan-out to 1,000
-subscribers costs 1,000 queue entries, not 1,000 copies. Whether lex-sys's `Rc` or an index into a slab is the right
-tool is a question for issue #6; the bound above holds either way. **[measure]** (peak memory at fan-out 1,000, G5).
 
 ## 5. Rules: every refusal has a tag and a defined action
 
@@ -150,6 +161,10 @@ unless stated. Spec references are to MQTT 3.1.1 (OASIS, 2014).
 | `limit.queue` | a subscriber's queue is at a bound | the new message is dropped for that subscriber; counted | |
 | `limit.retained` | a retained store is at a bound and the topic is new | the message is delivered live, not retained; counted | |
 | `limit.offline-sessions` | offline-session table full when a new one would be kept | the oldest offline session is dropped | |
+| `protocol.unexpected-packet` | a packet only a server sends (CONNACK, SUBACK, UNSUBACK, PINGRESP) | close | 2.2.1 |
+| `limit.topic-level` | a SUBSCRIBE filter with a level over 64 bytes | SUBACK 0x80 for that filter | |
+| `limit.will-size` | a will larger than `will-bytes` | CONNACK 0x03, close | |
+| `limit.output-full` | no room in a session's queue even for a control packet | close | |
 
 SUBSCRIBE at QoS 2 is **granted QoS 1** in SUBACK, which 3.1.1 allows (3.8.4). That is not a refusal; it has no tag.
 
@@ -172,6 +187,7 @@ applies as written and where a server forces a deviation.
 | `mqtt serve [flags]` | NDJSON log stream (below), ends with an `end` record | 0 after a graceful stop |
 | `mqtt introspect [--output json]` | one document: version, compiler pin, every flag with type, default and ceiling, the rule catalogue with exit codes, the exit-code table, the limits, the authority report | 0 |
 | `mqtt skill` | the agentskills.io `SKILL.md`, generated from the same tables | 0 |
+| `mqtt rules` | NDJSON, one `rule` record per connection-level rule with its tag and what the broker does, then an `end` record: the table `introspect` has no place for (see the gap below) | 0 |
 
 `mqtt --authority` (issue #9) is replaced by `mqtt introspect`, which carries the same report in its `authority`
 field. Unknown flags, flags given twice, a value on a boolean flag, a missing value: refused with `args.*`, never
@@ -196,9 +212,9 @@ are renamed to the catalogue form (`limit.packet-size`, `timeout.keepalive`, `pr
 live in the tool's own `extra_rules` beside the shared catalogue. **Connection-level tags do not decide an exit
 status**, since a refused client is not a failed process, so `toolbox.describe` has no row shape for them (its
 catalogue is `tag|exit|repairable|summary`). That is a gap in the shared package, listed in section 12; until it is
-closed they are published in `introspect` under a second key, `connection_rules`, with `{tag, action, spec,
-counted}`, and a proposed change to `toolbox.describe` goes to `lexsys-tools` rather than a fork here. Every tag has a
-fixture, and a test checks the fixtures equal the catalogue plus `connection_rules`.
+closed they are published by the `mqtt rules` command (tag and action, as NDJSON), and a proposed change to
+`toolbox.describe` goes to `lexsys-tools` rather than a fork here. Every tag has a fixture
+(`tests/conformance/test_rules.py`), and a test checks the fixtures are exactly the tags `mqtt rules` lists.
 
 **Repairs** exist only where a script can apply one without judgement and never widen authority: `args.unknown-flag`
 (nearest flag from the broker's own table), `args.out-of-range` (retry with the ceiling, never above it). A bound
@@ -219,7 +235,7 @@ kill flushes nothing. Record types, all bounded:
 | `end` | on stop | 1 |
 
 Rules that follow from the contract: **no message payload is ever logged**; client ids and topics are written as
-`text` when valid UTF-8 and as `{"b64":...}` when not, truncated at 64 bytes with `truncated:true` (D2); integers
+`text` when valid UTF-8 and as `{"b64":...}` when not, truncated at 32 bytes with `truncated:true` (D2); integers
 only; every write is checked and a failed or short write ends the stream with `io.write-failed` on stderr and exit 1
 (`toolbox.out`). **Deviation from D7:** a record carries `t_ms`, monotonic milliseconds since start, because a
 server's log without time is not a log, and the broker holds the `clock` label by design (section 2). It carries no
@@ -330,7 +346,7 @@ From `docs/native-sockets.md`, `docs/listen.md`, `docs/tls-nonblocking.md`:
   packet bound is to be tested first in #3; if it does, the packet bound's default is lowered and this section says so.
 - **Gap 6: `std.conns.Table` fields are readable** (`native-sockets.md` §6 correction); no effect here beyond noting
   that tickets are not authority.
-- **Gap 7: `toolbox.describe` has no shape for rules that are not exit statuses** (section 5a). To be proposed to `lexsys-tools` (not yet raised); until accepted the broker publishes `connection_rules` itself.
+- **Gap 7: `toolbox.describe` has no shape for rules that are not exit statuses** (section 5a). To be proposed to `lexsys-tools` (not yet raised); until accepted the broker publishes them with `mqtt rules`.
 - **Gap 8: standard output blocks.** A log reader that stops reading would stall the poller (section 5a, gate G9). Not measured yet.
 
 None of these has been verified for this program. The first task of #2 is to build a loop that accepts 1,000 sockets
