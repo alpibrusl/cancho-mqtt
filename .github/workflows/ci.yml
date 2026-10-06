@@ -50,10 +50,16 @@ jobs:
           python3 -c "import paho.mqtt, sys; print('paho-mqtt', paho.mqtt.__version__)"
 
       - name: Formatting
-        run: lex-sys fmt --check src generated
+        run: lex-sys fmt --check src tests generated
 
-      - name: Build
+      - name: Build (fetches the pinned contract package)
         run: lex-sys build
+
+      - name: Unit tests
+        run: lex-sys test
+
+      - name: The schema is generated, not edited
+        run: python3 scripts/schemas.py --check
 
       - name: Authority report is the compiler's, embedded, within the ceiling (G4)
         run: python3 scripts/manifest.py --check

@@ -861,8 +861,11 @@ pub fn wait[&h, &k, &l](heap: &!h Heap, b: Broker, clock: &k Clock, listener: &!
     let ms = clock_ms(clock);
     let now = ms / 1000;
     borrow mut state as &!cw in {
+        if cw.start_ms == 0 {
+            cw.start_ms = ms;
+        }
         cw.now = now;
-        cw.now_ms = ms;
+        cw.now_ms = ms - cw.start_ms;
     }
     if ready >= 0 {
         // New connections first, while the table is ours to grow.

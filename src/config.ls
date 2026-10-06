@@ -14,7 +14,7 @@ module mqtt.config;
 import std.bytes;
 
 pub fn flag_table() -> [] &static [byte] {
-    return "port||nat|none|1883|the TCP port to listen on;max-connections||nat|none|1024|connections at once, at most;max-packet||nat|none|16384|largest packet in bytes, header included;queue-bytes||nat|none|16384|bytes of outbound queue per session;queue-messages||nat|none|64|messages in one session's outbound queue;inflight||nat|none|16|QoS 1 messages sent and not yet acknowledged, per session;offline-sessions||nat|none|256|sessions kept for clients that are not connected;subscriptions-per-client||nat|none|32|subscriptions one client may hold;subscriptions-total||nat|none|16384|subscriptions in all;max-nodes||nat|none|65536|nodes in the subscription trie;topic-max||nat|none|1024|longest topic name or filter in bytes;topic-levels||nat|none|16|most levels in a topic name or filter;retained-messages||nat|none|1024|retained messages kept;retained-slot-bytes||nat|none|1024|bytes one retained message may take, topic included;will-bytes||nat|none|1024|bytes a will message may take, topic included;client-id-max||nat|none|128|longest client identifier in bytes;connect-timeout||nat|none|10|seconds a connection may take to send CONNECT;write-stall||nat|none|30|seconds a connection may make no write progress;stats-seconds||nat|none|10|seconds between stats records, 0 for none";
+    return "port||nat|none|1883|the TCP port to listen on;max-connections||nat|none|1024|connections at once, at most;max-packet||nat|none|16384|largest packet in bytes, header included;queue-bytes||nat|none|32768|bytes of outbound queue per session;queue-messages||nat|none|64|messages in one session's outbound queue;inflight||nat|none|16|QoS 1 messages sent and not yet acknowledged, per session;offline-sessions||nat|none|256|sessions kept for clients that are not connected;subscriptions-per-client||nat|none|32|subscriptions one client may hold;subscriptions-total||nat|none|16384|subscriptions in all;max-nodes||nat|none|65536|nodes in the subscription trie;topic-max||nat|none|1024|longest topic name or filter in bytes;topic-levels||nat|none|16|most levels in a topic name or filter;retained-messages||nat|none|1024|retained messages kept;retained-slot-bytes||nat|none|1024|bytes one retained message may take, topic included;will-bytes||nat|none|1024|bytes a will message may take, topic included;client-id-max||nat|none|128|longest client identifier in bytes;connect-timeout||nat|none|10|seconds a connection may take to send CONNECT;write-stall||nat|none|30|seconds a connection may make no write progress;stats-seconds||nat|none|10|seconds between stats records, 0 for none";
 }
 
 pub fn flags() -> [] int {
@@ -23,7 +23,7 @@ pub fn flags() -> [] int {
 
 // `name|default|ceiling`, `;`-separated, in the same order as `flag_table`.
 pub fn limits() -> [] &static [byte] {
-    return "port|1883|65535;max-connections|1024|16384;max-packet|16384|262144;queue-bytes|16384|1048576;queue-messages|64|1024;inflight|16|64;offline-sessions|256|16384;subscriptions-per-client|32|1024;subscriptions-total|16384|1048576;max-nodes|65536|4194304;topic-max|1024|65535;topic-levels|16|64;retained-messages|1024|65536;retained-slot-bytes|1024|262144;will-bytes|1024|65536;client-id-max|128|1024;connect-timeout|10|3600;write-stall|30|86400;stats-seconds|10|86400";
+    return "port|1883|65535;max-connections|1024|16384;max-packet|16384|262144;queue-bytes|32768|1048576;queue-messages|64|1024;inflight|16|64;offline-sessions|256|16384;subscriptions-per-client|32|1024;subscriptions-total|16384|1048576;max-nodes|65536|4194304;topic-max|1024|65535;topic-levels|16|64;retained-messages|1024|65536;retained-slot-bytes|1024|262144;will-bytes|1024|65536;client-id-max|128|1024;connect-timeout|10|3600;write-stall|30|86400;stats-seconds|10|86400";
 }
 
 pub fn i_port() -> [] int {
@@ -127,4 +127,42 @@ pub fn default_of(i: int) -> [] int {
 
 pub fn ceiling_of(i: int) -> [] int {
     return number(bytes.field(bytes.field(limits(), 59, i + 1), 124, 3));
+}
+
+// The smallest value flag `i` may have: below it a table has no room for even
+// one packet or one client.
+pub fn minimum_of(i: int) -> [] int {
+    if i == 2 {
+        return 64;
+    }
+    if i == 3 {
+        return 1024;
+    }
+    if i == 6 || i == 18 {
+        return 0;
+    }
+    if i == 9 {
+        return 16;
+    }
+    if i == 13 || i == 14 {
+        return 32;
+    }
+    if i == 15 {
+        return 23;
+    }
+    return 1;
+}
+
+// Bytes the tables take, allocated once at start: connections' input buffers and
+// state, sessions' queues, identifiers, wills and state, the retained store and the
+// subscription trie. An estimate of the tables alone (the program, the stack and
+// the connection table's tickets are not in it).
+pub fn memory[&g](cfg: &g [int]) -> [] int {
+    let conns = cfg[1];
+    let sessions = conns + cfg[6];
+    var total = conns * (cfg[2] + 128);
+    total = total + sessions * (cfg[3] + cfg[15] + cfg[14] + 160 + 40);
+    total = total + cfg[12] * (cfg[13] + 32);
+    total = total + cfg[9] * (80 + 64 + 16) + cfg[8] * 48;
+    return total;
 }

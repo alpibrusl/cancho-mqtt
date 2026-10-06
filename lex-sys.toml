@@ -27,3 +27,8 @@ std = true
 name = "config"
 sources = ["src/config.ls", "tests/config_test.ls"]
 std = true
+
+[dependencies.describe]
+git = "https://github.com/alpibrusl/lexsys-tools"
+rev = "5634a4a7108a675c0eab0412e96a57685beac9cb"
+path = ".lex-sys-vcs/toolbox.describe"

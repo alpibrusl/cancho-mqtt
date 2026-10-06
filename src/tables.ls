@@ -165,6 +165,7 @@ pub res struct Core {
     last_sweep: int,
     auto_id: int,
     nforeign: int,
+    start_ms: int,
 }
 
 // All the tables, for the bounds in `cfg` (indexed by `config.i_*`). The poller
@@ -204,11 +205,11 @@ pub fn open[&h, &g](heap: &!h Heap, poller: Poller, cfg: &g [int]) -> [heap] Cor
         }
     }
     let trie = subs.open(heap, cfg[config.i_nodes()], cfg[config.i_subs_total()], nsess, cfg[config.i_levels()], cfg[config.i_subs_client()]);
-    return Core { poller: poller, events: box_slice(heap, 128, 0), cs: cs, inbuf: box_slice(heap, limit * pmax, byte_of(0)), ss: ss, sid: box_slice(heap, nsess * idmax, byte_of(0)), qbuf: box_slice(heap, nsess * qbytes, byte_of(0)), wbuf: box_slice(heap, nsess * will_max, byte_of(0)), idb: box_slice(heap, 2 * nsess + 1, 0 - 1), rt: box_slice(heap, 4 * nret, 0), rtext: box_slice(heap, nret * rslot, byte_of(0)), trie: trie, ct: box_slice(heap, wire.connect_slots(), 0), pt: box_slice(heap, wire.publish_slots(), 0), ft: box_slice(heap, wire.filter_slots(), 0), codes: box_slice(heap, wire.max_filters(), 0), dirty: box_slice(heap, 2 * limit + 8, 0), ctr: box_slice(heap, counters(), 0), evq: box_slice(heap, 6 * event_capacity(), 0), evtext: box_slice(heap, event_text() * event_capacity(), byte_of(0)), foreign: box_slice(heap, 32, 0), limit: limit, pmax: pmax, qbytes: qbytes, qmsgs: cfg[config.i_queue_messages()], window: cfg[config.i_inflight()], nsess: nsess, noffline: noffline, idmax: idmax, topic_max: cfg[config.i_topic_max()], levels_max: cfg[config.i_levels()], nret: nret, rslot: rslot, will_max: will_max, connect_to: cfg[config.i_connect_timeout()], stall_to: cfg[config.i_write_stall()], free_sess: 0, online: 0, offline: 0, retained_used: 0, ndirty: 0, ev_head: 0, ev_count: 0, now: 0, now_ms: 0, last_sweep: 0, auto_id: 0, nforeign: 0 };
+    return Core { poller: poller, events: box_slice(heap, 128, 0), cs: cs, inbuf: box_slice(heap, limit * pmax, byte_of(0)), ss: ss, sid: box_slice(heap, nsess * idmax, byte_of(0)), qbuf: box_slice(heap, nsess * qbytes, byte_of(0)), wbuf: box_slice(heap, nsess * will_max, byte_of(0)), idb: box_slice(heap, 2 * nsess + 1, 0 - 1), rt: box_slice(heap, 4 * nret, 0), rtext: box_slice(heap, nret * rslot, byte_of(0)), trie: trie, ct: box_slice(heap, wire.connect_slots(), 0), pt: box_slice(heap, wire.publish_slots(), 0), ft: box_slice(heap, wire.filter_slots(), 0), codes: box_slice(heap, wire.max_filters(), 0), dirty: box_slice(heap, 2 * limit + 8, 0), ctr: box_slice(heap, counters(), 0), evq: box_slice(heap, 6 * event_capacity(), 0), evtext: box_slice(heap, event_text() * event_capacity(), byte_of(0)), foreign: box_slice(heap, 32, 0), limit: limit, pmax: pmax, qbytes: qbytes, qmsgs: cfg[config.i_queue_messages()], window: cfg[config.i_inflight()], nsess: nsess, noffline: noffline, idmax: idmax, topic_max: cfg[config.i_topic_max()], levels_max: cfg[config.i_levels()], nret: nret, rslot: rslot, will_max: will_max, connect_to: cfg[config.i_connect_timeout()], stall_to: cfg[config.i_write_stall()], free_sess: 0, online: 0, offline: 0, retained_used: 0, ndirty: 0, ev_head: 0, ev_count: 0, now: 0, now_ms: 0, last_sweep: 0, auto_id: 0, nforeign: 0, start_ms: 0 };
 }
 
 pub fn drop[&h](heap: &!h Heap, core: Core) -> [heap] int {
-    let Core { poller, events, cs, inbuf, ss, sid, qbuf, wbuf, idb, rt, rtext, trie, ct, pt, ft, codes, dirty, ctr, evq, evtext, foreign, limit, pmax, qbytes, qmsgs, window, nsess, noffline, idmax, topic_max, levels_max, nret, rslot, will_max, connect_to, stall_to, free_sess, online, offline, retained_used, ndirty, ev_head, ev_count, now, now_ms, last_sweep, auto_id, nforeign } = core;
+    let Core { poller, events, cs, inbuf, ss, sid, qbuf, wbuf, idb, rt, rtext, trie, ct, pt, ft, codes, dirty, ctr, evq, evtext, foreign, limit, pmax, qbytes, qmsgs, window, nsess, noffline, idmax, topic_max, levels_max, nret, rslot, will_max, connect_to, stall_to, free_sess, online, offline, retained_used, ndirty, ev_head, ev_count, now, now_ms, last_sweep, auto_id, nforeign, start_ms } = core;
     poller_close(poller);
     unbox_slice(heap, events);
     unbox_slice(heap, cs);
@@ -264,6 +265,7 @@ pub fn refuse[&c](core: &!c Core, rule: int, k: int, s: int, extra: int) -> [] i
     var idlen = 0;
     if s >= 0 {
         idlen = contents(core.ss)[s_stride() * s + 3];
+        ev[6 * at + 4] = idlen;
         if idlen > event_text() {
             idlen = event_text();
         }
