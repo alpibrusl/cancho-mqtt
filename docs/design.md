@@ -341,6 +341,12 @@ revisited in #12 if it cannot be installed in CI).
 No claim of being faster is made before B1-B6 exist. The expected honest outcome in `native-sockets.md` §10.4 is that
 the `Poller` is slower than `poll(2)` in the environment it was measured in, so a loss is plausible.
 
+**Corrected after running it (issue #12).** The cells above are the plan. What ran differs, and `docs/benchmark.md` ("Cells as
+run") says how: fan-out used 4 publishers; B3 and B4 became a closed-loop probe with 0 and 1,000 idle connections (no
+fixed-offered-load latency cell); B5 ran without retained messages; B6 measured the load generator, not the brokers. The
+comparison covers five incumbents (Mosquitto, NanoMQ, EMQX, VerneMQ, HiveMQ CE), not Mosquitto alone, and the load generator
+is `emqtt-bench` as planned. The honest outcome the plan expected ("a loss is plausible") was a mixed one: see the document.
+
 ## 12. What lex-sys gives, and gaps to confirm in #2
 
 From `docs/native-sockets.md`, `docs/listen.md`, `docs/tls-nonblocking.md`:

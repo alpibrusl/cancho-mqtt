@@ -1,0 +1,1982 @@
+{
+ "mosquitto/1core": {
+  "image": "eclipse-mosquitto:2",
+  "image_id": "sha256:38c0da4f2ef8",
+  "cores": 1,
+  "start_s": 0.502758264541626,
+  "fanout_qos0": [
+   {
+    "delivered_per_s": 576437.0,
+    "published_per_s": 51962.0,
+    "delivery_ratio": 0.11093433663061468,
+    "subscribers": 100,
+    "publishers": 4
+   },
+   {
+    "delivered_per_s": 542460.0,
+    "published_per_s": 92580.26,
+    "delivery_ratio": 0.05859348418334535,
+    "subscribers": 100,
+    "publishers": 4
+   },
+   {
+    "delivered_per_s": 512689.76,
+    "published_per_s": 157737.74,
+    "delivery_ratio": 0.03250266930412468,
+    "subscribers": 100,
+    "publishers": 4
+   }
+  ],
+  "fanout_qos1": [
+   {
+    "delivered_per_s": 70646.94,
+    "published_per_s": 27423.15,
+    "delivery_ratio": 0.02576178885357809,
+    "subscribers": 100,
+    "publishers": 4
+   },
+   {
+    "delivered_per_s": 60982.69,
+    "published_per_s": 28443.56,
+    "delivery_ratio": 0.02143989359981662,
+    "subscribers": 100,
+    "publishers": 4
+   },
+   {
+    "delivered_per_s": 61879.82,
+    "published_per_s": 26891.78,
+    "delivery_ratio": 0.023010682074596774,
+    "subscribers": 100,
+    "publishers": 4
+   }
+  ],
+  "latency_idle0": [
+   {
+    "idle_connections": 0,
+    "samples": 20000,
+    "p50_us": 52.552,
+    "p90_us": 62.467,
+    "p99_us": 101.446,
+    "p999_us": 226.001,
+    "max_us": 1950.884
+   },
+   {
+    "idle_connections": 0,
+    "samples": 20000,
+    "p50_us": 45.996,
+    "p90_us": 53.386,
+    "p99_us": 84.049,
+    "p999_us": 399.682,
+    "max_us": 649.473
+   },
+   {
+    "idle_connections": 0,
+    "samples": 20000,
+    "p50_us": 46.273,
+    "p90_us": 58.218,
+    "p99_us": 82.422,
+    "p999_us": 119.834,
+    "max_us": 292.834
+   }
+  ],
+  "latency_idle1000": [
+   {
+    "idle_connections": 1000,
+    "samples": 20000,
+    "p50_us": 46.202,
+    "p90_us": 56.641,
+    "p99_us": 80.181,
+    "p999_us": 218.442,
+    "max_us": 821.203
+   },
+   {
+    "idle_connections": 1000,
+    "samples": 20000,
+    "p50_us": 47.01,
+    "p90_us": 58.433,
+    "p99_us": 86.621,
+    "p999_us": 182.871,
+    "max_us": 2592.603
+   },
+   {
+    "idle_connections": 1000,
+    "samples": 20000,
+    "p50_us": 49.012,
+    "p90_us": 60.45,
+    "p99_us": 93.235,
+    "p999_us": 266.195,
+    "max_us": 1865.133
+   }
+  ],
+  "memory": {
+   "idle_mib": 3.352,
+   "mib_at_1000_connections": 10.34,
+   "mib_at_5000_connections": 38.91,
+   "connected": 5000
+  },
+  "connect": {
+   "connected": 5000,
+   "target": 5000,
+   "peak_per_s": 2420.0,
+   "note": "bounded by the load generator, not necessarily the broker"
+  },
+  "restart_per_run": false,
+  "fanout_qos0_paced": [
+   {
+    "delivered_per_s": 20000.0,
+    "published_per_s": 400.0,
+    "delivery_ratio": 1.0,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": 200.0
+   },
+   {
+    "delivered_per_s": 20000.0,
+    "published_per_s": 400.0,
+    "delivery_ratio": 1.0,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": 200.0
+   },
+   {
+    "delivered_per_s": 20000.0,
+    "published_per_s": 400.0,
+    "delivery_ratio": 1.0,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": 200.0
+   }
+  ]
+ },
+ "emqx/1core": {
+  "image": "emqx/emqx:5.8.6",
+  "image_id": "sha256:a1e3d10fa1dc",
+  "cores": 1,
+  "start_s": 4.004512786865234,
+  "fanout_qos0": [
+   {
+    "delivered_per_s": 47667.0,
+    "published_per_s": 170439.495,
+    "delivery_ratio": 0.002796710938389016,
+    "subscribers": 100,
+    "publishers": 4
+   },
+   {
+    "delivered_per_s": 47407.0,
+    "published_per_s": 157364.755,
+    "delivery_ratio": 0.003012555130276789,
+    "subscribers": 100,
+    "publishers": 4
+   },
+   {
+    "delivered_per_s": 49006.0,
+    "published_per_s": 156239.245,
+    "delivery_ratio": 0.0031365998984442096,
+    "subscribers": 100,
+    "publishers": 4
+   }
+  ],
+  "fanout_qos1": [
+   {
+    "delivered_per_s": 32381.0,
+    "published_per_s": 326.0,
+    "delivery_ratio": 0.9932822085889571,
+    "subscribers": 100,
+    "publishers": 4
+   },
+   {
+    "delivered_per_s": 31032.0,
+    "published_per_s": 309.0,
+    "delivery_ratio": 1.0042718446601941,
+    "subscribers": 100,
+    "publishers": 4
+   },
+   {
+    "delivered_per_s": 32658.0,
+    "published_per_s": 321.0,
+    "delivery_ratio": 1.0173831775700934,
+    "subscribers": 100,
+    "publishers": 4
+   }
+  ],
+  "latency_idle0": [
+   {
+    "idle_connections": 0,
+    "samples": 20000,
+    "p50_us": 71.357,
+    "p90_us": 93.245,
+    "p99_us": 133.322,
+    "p999_us": 338.467,
+    "max_us": 612.962
+   },
+   {
+    "idle_connections": 0,
+    "samples": 20000,
+    "p50_us": 70.574,
+    "p90_us": 91.016,
+    "p99_us": 125.906,
+    "p999_us": 517.921,
+    "max_us": 1092.686
+   },
+   {
+    "idle_connections": 0,
+    "samples": 20000,
+    "p50_us": 69.078,
+    "p90_us": 88.439,
+    "p99_us": 120.293,
+    "p999_us": 263.914,
+    "max_us": 571.046
+   }
+  ],
+  "latency_idle1000": [
+   {
+    "idle_connections": 1000,
+    "samples": 20000,
+    "p50_us": 70.21,
+    "p90_us": 88.227,
+    "p99_us": 119.139,
+    "p999_us": 181.22,
+    "max_us": 932.447
+   },
+   {
+    "idle_connections": 1000,
+    "samples": 20000,
+    "p50_us": 68.604,
+    "p90_us": 85.915,
+    "p99_us": 113.625,
+    "p999_us": 164.796,
+    "max_us": 2839.211
+   },
+   {
+    "idle_connections": 1000,
+    "samples": 20000,
+    "p50_us": 68.557,
+    "p90_us": 83.102,
+    "p99_us": 108.136,
+    "p999_us": 149.424,
+    "max_us": 407.596
+   }
+  ],
+  "memory": {
+   "idle_mib": 215.3,
+   "mib_at_1000_connections": 218.7,
+   "mib_at_5000_connections": 315.0,
+   "connected": 5000
+  },
+  "connect": {
+   "connected": 5000,
+   "target": 5000,
+   "peak_per_s": 2455.0,
+   "note": "bounded by the load generator, not necessarily the broker"
+  },
+  "restart_per_run": false,
+  "fanout_qos0_paced": [
+   {
+    "delivered_per_s": 19983.0,
+    "published_per_s": 400.0,
+    "delivery_ratio": 0.99915,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": 200.0
+   },
+   {
+    "delivered_per_s": 20000.0,
+    "published_per_s": 400.0,
+    "delivery_ratio": 1.0,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": 200.0
+   },
+   {
+    "delivered_per_s": 20000.0,
+    "published_per_s": 400.0,
+    "delivery_ratio": 1.0,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": 200.0
+   }
+  ]
+ },
+ "nanomq/1core": {
+  "image": "emqx/nanomq:latest",
+  "image_id": "sha256:4c01fb8421b0",
+  "cores": 1,
+  "start_s": 0.5012595653533936,
+  "fanout_qos0": [
+   {
+    "delivered_per_s": 134688.0,
+    "published_per_s": 181113.89,
+    "delivery_ratio": 0.007436646631575303,
+    "subscribers": 100,
+    "publishers": 4
+   },
+   {
+    "delivered_per_s": 141296.0,
+    "published_per_s": 204457.5,
+    "delivery_ratio": 0.0069107760781580525,
+    "subscribers": 100,
+    "publishers": 4
+   },
+   {
+    "delivered_per_s": 133613.0,
+    "published_per_s": 201177.14,
+    "delivery_ratio": 0.006641559771651988,
+    "subscribers": 100,
+    "publishers": 4
+   }
+  ],
+  "fanout_qos1": [
+   {
+    "delivered_per_s": 92990.0,
+    "published_per_s": 734.0,
+    "delivery_ratio": 1.2668937329700272,
+    "subscribers": 100,
+    "publishers": 4
+   },
+   {
+    "delivered_per_s": 80253.0,
+    "published_per_s": 804.0,
+    "delivery_ratio": 0.9981716417910448,
+    "subscribers": 100,
+    "publishers": 4
+   },
+   {
+    "delivered_per_s": 79880.0,
+    "published_per_s": 793.41,
+    "delivery_ratio": 1.0067934611361087,
+    "subscribers": 100,
+    "publishers": 4
+   }
+  ],
+  "latency_idle0": [
+   {
+    "idle_connections": 0,
+    "samples": 20000,
+    "p50_us": 63.971,
+    "p90_us": 79.382,
+    "p99_us": 111.123,
+    "p999_us": 357.372,
+    "max_us": 1268.812
+   },
+   {
+    "idle_connections": 0,
+    "samples": 20000,
+    "p50_us": 65.934,
+    "p90_us": 83.944,
+    "p99_us": 111.842,
+    "p999_us": 171.365,
+    "max_us": 388.11
+   },
+   {
+    "idle_connections": 0,
+    "samples": 20000,
+    "p50_us": 66.286,
+    "p90_us": 85.544,
+    "p99_us": 153.411,
+    "p999_us": 525.132,
+    "max_us": 1093.802
+   }
+  ],
+  "latency_idle1000": [
+   {
+    "idle_connections": 1000,
+    "samples": 20000,
+    "p50_us": 70.166,
+    "p90_us": 88.506,
+    "p99_us": 117.206,
+    "p999_us": 186.726,
+    "max_us": 443.474
+   },
+   {
+    "idle_connections": 1000,
+    "samples": 20000,
+    "p50_us": 74.645,
+    "p90_us": 87.472,
+    "p99_us": 119.121,
+    "p999_us": 182.487,
+    "max_us": 660.388
+   },
+   {
+    "idle_connections": 1000,
+    "samples": 20000,
+    "p50_us": 61.772,
+    "p90_us": 75.17,
+    "p99_us": 97.134,
+    "p999_us": 128.892,
+    "max_us": 428.019
+   }
+  ],
+  "memory": {
+   "idle_mib": 1.477,
+   "mib_at_1000_connections": 14.49,
+   "mib_at_5000_connections": 68.52,
+   "connected": 5000
+  },
+  "connect": {
+   "connected": 5000,
+   "target": 5000,
+   "peak_per_s": 2468.0,
+   "note": "bounded by the load generator, not necessarily the broker"
+  },
+  "restart_per_run": false,
+  "fanout_qos0_paced": [
+   {
+    "delivered_per_s": 19995.0,
+    "published_per_s": 400.0,
+    "delivery_ratio": 0.99975,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": 200.0
+   },
+   {
+    "delivered_per_s": 19996.0,
+    "published_per_s": 400.0,
+    "delivery_ratio": 0.9998,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": 200.0
+   },
+   {
+    "delivered_per_s": 20000.0,
+    "published_per_s": 400.0,
+    "delivery_ratio": 1.0,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": 200.0
+   }
+  ]
+ },
+ "vernemq/1core": {
+  "image": "vernemq/vernemq:latest",
+  "image_id": "sha256:d1418a3b3b3b",
+  "cores": 1,
+  "start_s": 4.528305292129517,
+  "fanout_qos0": [
+   {
+    "delivered_per_s": 325111.11,
+    "published_per_s": 85360.16,
+    "delivery_ratio": 0.038086984607339065,
+    "subscribers": 100,
+    "publishers": 4
+   },
+   {
+    "delivered_per_s": 320270.0,
+    "published_per_s": 38810.81,
+    "delivery_ratio": 0.08252082345099214,
+    "subscribers": 100,
+    "publishers": 4
+   },
+   {
+    "delivered_per_s": 327119.0,
+    "published_per_s": 87172.0,
+    "delivery_ratio": 0.03752569632450787,
+    "subscribers": 100,
+    "publishers": 4
+   }
+  ],
+  "fanout_qos1": [
+   {
+    "delivered_per_s": 10899.0,
+    "published_per_s": 109.0,
+    "delivery_ratio": 0.9999082568807339,
+    "subscribers": 100,
+    "publishers": 4
+   },
+   {
+    "delivered_per_s": 10751.0,
+    "published_per_s": 108.0,
+    "delivery_ratio": 0.995462962962963,
+    "subscribers": 100,
+    "publishers": 4
+   },
+   {
+    "delivered_per_s": 10558.0,
+    "published_per_s": 106.0,
+    "delivery_ratio": 0.9960377358490566,
+    "subscribers": 100,
+    "publishers": 4
+   }
+  ],
+  "latency_idle0": [
+   {
+    "idle_connections": 0,
+    "samples": 20000,
+    "p50_us": 71.231,
+    "p90_us": 90.658,
+    "p99_us": 124.385,
+    "p999_us": 197.702,
+    "max_us": 473.434
+   },
+   {
+    "idle_connections": 0,
+    "samples": 20000,
+    "p50_us": 72.474,
+    "p90_us": 99.839,
+    "p99_us": 417.168,
+    "p999_us": 890.088,
+    "max_us": 9598.337
+   },
+   {
+    "idle_connections": 0,
+    "samples": 20000,
+    "p50_us": 71.387,
+    "p90_us": 92.718,
+    "p99_us": 123.53,
+    "p999_us": 208.138,
+    "max_us": 929.729
+   }
+  ],
+  "latency_idle1000": [
+   {
+    "idle_connections": 1000,
+    "samples": 20000,
+    "p50_us": 92.791,
+    "p90_us": 121.966,
+    "p99_us": 204.248,
+    "p999_us": 540.276,
+    "max_us": 4348.955
+   },
+   {
+    "idle_connections": 1000,
+    "samples": 20000,
+    "p50_us": 92.321,
+    "p90_us": 123.858,
+    "p99_us": 341.153,
+    "p999_us": 777.742,
+    "max_us": 2104.613
+   },
+   {
+    "idle_connections": 1000,
+    "samples": 20000,
+    "p50_us": 95.919,
+    "p90_us": 139.502,
+    "p99_us": 441.035,
+    "p999_us": 1067.895,
+    "max_us": 2374.783
+   }
+  ],
+  "memory": {
+   "idle_mib": 227.1,
+   "mib_at_1000_connections": 243.2,
+   "mib_at_5000_connections": 363.0,
+   "connected": 5000
+  },
+  "connect": {
+   "connected": 5000,
+   "target": 5000,
+   "peak_per_s": 2117.0,
+   "note": "bounded by the load generator, not necessarily the broker"
+  },
+  "restart_per_run": false,
+  "fanout_qos0_paced": [
+   {
+    "delivered_per_s": 20000.0,
+    "published_per_s": 400.0,
+    "delivery_ratio": 1.0,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": 200.0
+   },
+   {
+    "delivered_per_s": 20008.0,
+    "published_per_s": 400.0,
+    "delivery_ratio": 1.0004,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": 200.0
+   },
+   {
+    "delivered_per_s": 20000.0,
+    "published_per_s": 400.0,
+    "delivery_ratio": 1.0,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": 200.0
+   }
+  ]
+ },
+ "hivemq-ce/1core": {
+  "image": "hivemq/hivemq-ce:latest",
+  "image_id": "sha256:bac6d4d1d815",
+  "cores": 1,
+  "restart_per_run": true,
+  "start_s": 4.726799726486206,
+  "fanout_qos0_paced": [
+   {
+    "delivered_per_s": 20000.0,
+    "published_per_s": 400.0,
+    "delivery_ratio": 1.0,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": 200.0
+   },
+   {
+    "delivered_per_s": 20000.0,
+    "published_per_s": 400.0,
+    "delivery_ratio": 1.0,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": 200.0
+   },
+   {
+    "delivered_per_s": 20000.0,
+    "published_per_s": 400.0,
+    "delivery_ratio": 1.0,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": 200.0
+   }
+  ],
+  "fanout_qos0": [
+   {
+    "delivered_per_s": 49.77,
+    "published_per_s": 174024.0,
+    "delivery_ratio": 2.8599503516756313e-06,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": null
+   },
+   {
+    "delivered_per_s": 150.28,
+    "published_per_s": 308686.0,
+    "delivery_ratio": 4.868377574622756e-06,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": null
+   },
+   {
+    "delivered_per_s": 54.98,
+    "published_per_s": 338212.0,
+    "delivery_ratio": 1.6256076070630255e-06,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": null
+   }
+  ],
+  "fanout_qos1": [
+   {
+    "delivered_per_s": 8230.0,
+    "published_per_s": 82.0,
+    "delivery_ratio": 1.0036585365853659,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": null
+   },
+   {
+    "delivered_per_s": 9169.0,
+    "published_per_s": 93.0,
+    "delivery_ratio": 0.9859139784946237,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": null
+   },
+   {
+    "delivered_per_s": 7577.0,
+    "published_per_s": 81.0,
+    "delivery_ratio": 0.9354320987654321,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": null
+   }
+  ],
+  "latency_idle0": [
+   {
+    "idle_connections": 0,
+    "samples": 20000,
+    "p50_us": 159.439,
+    "p90_us": 317.137,
+    "p99_us": 4556.183,
+    "p999_us": 6350.06,
+    "max_us": 14690.526
+   },
+   {
+    "idle_connections": 0,
+    "samples": 20000,
+    "p50_us": 178.298,
+    "p90_us": 405.18,
+    "p99_us": 4660.754,
+    "p999_us": 6272.773,
+    "max_us": 14839.286
+   },
+   {
+    "idle_connections": 0,
+    "samples": 20000,
+    "p50_us": 160.911,
+    "p90_us": 311.473,
+    "p99_us": 4569.645,
+    "p999_us": 6310.174,
+    "max_us": 17204.881
+   }
+  ],
+  "latency_idle1000": [
+   {
+    "idle_connections": 1000,
+    "samples": 20000,
+    "p50_us": 171.044,
+    "p90_us": 333.63,
+    "p99_us": 4722.226,
+    "p999_us": 6177.385,
+    "max_us": 17599.378
+   },
+   {
+    "idle_connections": 1000,
+    "samples": 20000,
+    "p50_us": 199.189,
+    "p90_us": 433.065,
+    "p99_us": 4983.291,
+    "p999_us": 6248.864,
+    "max_us": 20031.355
+   },
+   {
+    "idle_connections": 1000,
+    "samples": 20000,
+    "p50_us": 179.067,
+    "p90_us": 405.88,
+    "p99_us": 4848.269,
+    "p999_us": 6309.459,
+    "max_us": 20764.935
+   }
+  ],
+  "memory": {
+   "idle_mib": 229.0,
+   "mib_at_1000_connections": 245.8,
+   "mib_at_5000_connections": 284.3,
+   "connected": 5000
+  },
+  "connect": {
+   "connected": 5000,
+   "target": 5000,
+   "peak_per_s": 3414.0,
+   "note": "bounded by the load generator, not necessarily the broker"
+  }
+ },
+ "mosquitto/2core": {
+  "image": "eclipse-mosquitto:2",
+  "image_id": "sha256:38c0da4f2ef8",
+  "cores": 2,
+  "start_s": 0.0030035972595214844,
+  "fanout_qos0": [
+   {
+    "delivered_per_s": 545175.0,
+    "published_per_s": 99184.0,
+    "delivery_ratio": 0.05496602274560413,
+    "subscribers": 100,
+    "publishers": 4
+   },
+   {
+    "delivered_per_s": 528427.57,
+    "published_per_s": 36568.57,
+    "delivery_ratio": 0.14450320862970578,
+    "subscribers": 100,
+    "publishers": 4
+   },
+   {
+    "delivered_per_s": 553568.57,
+    "published_per_s": 17835.95,
+    "delivery_ratio": 0.31036674244993956,
+    "subscribers": 100,
+    "publishers": 4
+   }
+  ],
+  "fanout_qos1": [
+   {
+    "delivered_per_s": 63822.99,
+    "published_per_s": 23445.55,
+    "delivery_ratio": 0.027221792621627557,
+    "subscribers": 100,
+    "publishers": 4
+   },
+   {
+    "delivered_per_s": 65360.0,
+    "published_per_s": 24794.0,
+    "delivery_ratio": 0.026361216423328223,
+    "subscribers": 100,
+    "publishers": 4
+   },
+   {
+    "delivered_per_s": 68637.36,
+    "published_per_s": 27381.0,
+    "delivery_ratio": 0.025067513969540923,
+    "subscribers": 100,
+    "publishers": 4
+   }
+  ],
+  "latency_idle0": [
+   {
+    "idle_connections": 0,
+    "samples": 20000,
+    "p50_us": 46.919,
+    "p90_us": 55.751,
+    "p99_us": 91.336,
+    "p999_us": 125.055,
+    "max_us": 283.139
+   },
+   {
+    "idle_connections": 0,
+    "samples": 20000,
+    "p50_us": 46.348,
+    "p90_us": 54.873,
+    "p99_us": 91.962,
+    "p999_us": 135.041,
+    "max_us": 576.199
+   },
+   {
+    "idle_connections": 0,
+    "samples": 20000,
+    "p50_us": 51.547,
+    "p90_us": 60.589,
+    "p99_us": 119.057,
+    "p999_us": 318.337,
+    "max_us": 2169.1
+   }
+  ],
+  "latency_idle1000": [
+   {
+    "idle_connections": 1000,
+    "samples": 20000,
+    "p50_us": 47.188,
+    "p90_us": 57.486,
+    "p99_us": 93.82,
+    "p999_us": 147.897,
+    "max_us": 371.871
+   },
+   {
+    "idle_connections": 1000,
+    "samples": 20000,
+    "p50_us": 47.34,
+    "p90_us": 58.071,
+    "p99_us": 92.675,
+    "p999_us": 186.353,
+    "max_us": 368.449
+   },
+   {
+    "idle_connections": 1000,
+    "samples": 20000,
+    "p50_us": 47.257,
+    "p90_us": 58.95,
+    "p99_us": 96.96,
+    "p999_us": 157.257,
+    "max_us": 522.541
+   }
+  ],
+  "memory": {
+   "idle_mib": 4.191,
+   "mib_at_1000_connections": 11.43,
+   "mib_at_5000_connections": 39.82,
+   "connected": 5000
+  },
+  "connect": {
+   "connected": 5000,
+   "target": 5000,
+   "peak_per_s": 2480.0,
+   "note": "bounded by the load generator, not necessarily the broker"
+  },
+  "restart_per_run": false,
+  "fanout_qos0_paced": [
+   {
+    "delivered_per_s": 20000.0,
+    "published_per_s": 400.0,
+    "delivery_ratio": 1.0,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": 200.0
+   },
+   {
+    "delivered_per_s": 19999.0,
+    "published_per_s": 400.0,
+    "delivery_ratio": 0.99995,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": 200.0
+   },
+   {
+    "delivered_per_s": 20000.0,
+    "published_per_s": 400.0,
+    "delivery_ratio": 1.0,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": 200.0
+   }
+  ]
+ },
+ "emqx/2core": {
+  "image": "emqx/emqx:5.8.6",
+  "image_id": "sha256:a1e3d10fa1dc",
+  "cores": 2,
+  "start_s": 4.00523567199707,
+  "fanout_qos0": [
+   {
+    "delivered_per_s": 89612.0,
+    "published_per_s": 183866.815,
+    "delivery_ratio": 0.0048737451616812965,
+    "subscribers": 100,
+    "publishers": 4
+   },
+   {
+    "delivered_per_s": 85548.0,
+    "published_per_s": 260413.17,
+    "delivery_ratio": 0.0032850873095243223,
+    "subscribers": 100,
+    "publishers": 4
+   },
+   {
+    "delivered_per_s": 86980.0,
+    "published_per_s": 207160.055,
+    "delivery_ratio": 0.00419868589048212,
+    "subscribers": 100,
+    "publishers": 4
+   }
+  ],
+  "fanout_qos1": [
+   {
+    "delivered_per_s": 55943.0,
+    "published_per_s": 562.0,
+    "delivery_ratio": 0.9954270462633452,
+    "subscribers": 100,
+    "publishers": 4
+   },
+   {
+    "delivered_per_s": 55706.29,
+    "published_per_s": 555.89,
+    "delivery_ratio": 1.0021099498102142,
+    "subscribers": 100,
+    "publishers": 4
+   },
+   {
+    "delivered_per_s": 57473.0,
+    "published_per_s": 575.0,
+    "delivery_ratio": 0.9995304347826087,
+    "subscribers": 100,
+    "publishers": 4
+   }
+  ],
+  "latency_idle0": [
+   {
+    "idle_connections": 0,
+    "samples": 20000,
+    "p50_us": 72.318,
+    "p90_us": 99.368,
+    "p99_us": 170.658,
+    "p999_us": 366.823,
+    "max_us": 688.359
+   },
+   {
+    "idle_connections": 0,
+    "samples": 20000,
+    "p50_us": 72.598,
+    "p90_us": 101.752,
+    "p99_us": 199.372,
+    "p999_us": 477.767,
+    "max_us": 5376.017
+   },
+   {
+    "idle_connections": 0,
+    "samples": 20000,
+    "p50_us": 73.572,
+    "p90_us": 101.75,
+    "p99_us": 180.226,
+    "p999_us": 359.019,
+    "max_us": 3579.181
+   }
+  ],
+  "latency_idle1000": [
+   {
+    "idle_connections": 1000,
+    "samples": 20000,
+    "p50_us": 74.799,
+    "p90_us": 105.251,
+    "p99_us": 177.14,
+    "p999_us": 363.799,
+    "max_us": 5645.113
+   },
+   {
+    "idle_connections": 1000,
+    "samples": 20000,
+    "p50_us": 73.545,
+    "p90_us": 101.531,
+    "p99_us": 168.472,
+    "p999_us": 317.019,
+    "max_us": 4423.661
+   },
+   {
+    "idle_connections": 1000,
+    "samples": 20000,
+    "p50_us": 75.93,
+    "p90_us": 104.836,
+    "p99_us": 183.504,
+    "p999_us": 361.551,
+    "max_us": 5397.934
+   }
+  ],
+  "memory": {
+   "idle_mib": 221.3,
+   "mib_at_1000_connections": 222.4,
+   "mib_at_5000_connections": 349.0,
+   "connected": 5000
+  },
+  "connect": {
+   "connected": 5000,
+   "target": 5000,
+   "peak_per_s": 2460.0,
+   "note": "bounded by the load generator, not necessarily the broker"
+  },
+  "restart_per_run": false,
+  "fanout_qos0_paced": [
+   {
+    "delivered_per_s": 20000.0,
+    "published_per_s": 400.0,
+    "delivery_ratio": 1.0,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": 200.0
+   },
+   {
+    "delivered_per_s": 20000.0,
+    "published_per_s": 400.0,
+    "delivery_ratio": 1.0,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": 200.0
+   },
+   {
+    "delivered_per_s": 20000.0,
+    "published_per_s": 400.0,
+    "delivery_ratio": 1.0,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": 200.0
+   }
+  ]
+ },
+ "nanomq/2core": {
+  "image": "emqx/nanomq:latest",
+  "image_id": "sha256:4c01fb8421b0",
+  "cores": 2,
+  "start_s": 0.0007145404815673828,
+  "fanout_qos0": [
+   {
+    "delivered_per_s": 184071.0,
+    "published_per_s": 235074.78,
+    "delivery_ratio": 0.007830316803869815,
+    "subscribers": 100,
+    "publishers": 4
+   },
+   {
+    "delivered_per_s": 186742.0,
+    "published_per_s": 130593.43,
+    "delivery_ratio": 0.014299494239488158,
+    "subscribers": 100,
+    "publishers": 4
+   },
+   {
+    "delivered_per_s": 174538.0,
+    "published_per_s": 249527.89,
+    "delivery_ratio": 0.006994729126271216,
+    "subscribers": 100,
+    "publishers": 4
+   }
+  ],
+  "fanout_qos1": [
+   {
+    "delivered_per_s": 114207.21,
+    "published_per_s": 872.0,
+    "delivery_ratio": 1.3097157110091744,
+    "subscribers": 100,
+    "publishers": 4
+   },
+   {
+    "delivered_per_s": 111484.52,
+    "published_per_s": 1337.0,
+    "delivery_ratio": 0.8338408376963351,
+    "subscribers": 100,
+    "publishers": 4
+   },
+   {
+    "delivered_per_s": 101394.0,
+    "published_per_s": 1607.0,
+    "delivery_ratio": 0.6309520846297448,
+    "subscribers": 100,
+    "publishers": 4
+   }
+  ],
+  "latency_idle0": [
+   {
+    "idle_connections": 0,
+    "samples": 20000,
+    "p50_us": 87.402,
+    "p90_us": 107.67,
+    "p99_us": 149.884,
+    "p999_us": 365.679,
+    "max_us": 826.594
+   },
+   {
+    "idle_connections": 0,
+    "samples": 20000,
+    "p50_us": 87.025,
+    "p90_us": 108.127,
+    "p99_us": 149.763,
+    "p999_us": 367.789,
+    "max_us": 2550.257
+   },
+   {
+    "idle_connections": 0,
+    "samples": 20000,
+    "p50_us": 87.088,
+    "p90_us": 108.574,
+    "p99_us": 153.894,
+    "p999_us": 344.536,
+    "max_us": 1383.213
+   }
+  ],
+  "latency_idle1000": [
+   {
+    "idle_connections": 1000,
+    "samples": 20000,
+    "p50_us": 83.392,
+    "p90_us": 101.083,
+    "p99_us": 135.986,
+    "p999_us": 241.677,
+    "max_us": 535.783
+   },
+   {
+    "idle_connections": 1000,
+    "samples": 20000,
+    "p50_us": 86.327,
+    "p90_us": 106.58,
+    "p99_us": 158.643,
+    "p999_us": 344.853,
+    "max_us": 630.967
+   },
+   {
+    "idle_connections": 1000,
+    "samples": 20000,
+    "p50_us": 84.679,
+    "p90_us": 104.663,
+    "p99_us": 145.697,
+    "p999_us": 293.824,
+    "max_us": 676.741
+   }
+  ],
+  "memory": {
+   "idle_mib": 1.711,
+   "mib_at_1000_connections": 14.59,
+   "mib_at_5000_connections": 68.59,
+   "connected": 5000
+  },
+  "connect": {
+   "connected": 5000,
+   "target": 5000,
+   "peak_per_s": 2470.0,
+   "note": "bounded by the load generator, not necessarily the broker"
+  },
+  "restart_per_run": false,
+  "fanout_qos0_paced": [
+   {
+    "delivered_per_s": 20000.0,
+    "published_per_s": 400.0,
+    "delivery_ratio": 1.0,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": 200.0
+   },
+   {
+    "delivered_per_s": 19998.0,
+    "published_per_s": 400.0,
+    "delivery_ratio": 0.9999,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": 200.0
+   },
+   {
+    "delivered_per_s": 19972.0,
+    "published_per_s": 400.0,
+    "delivery_ratio": 0.9986,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": 200.0
+   }
+  ]
+ },
+ "vernemq/2core": {
+  "image": "vernemq/vernemq:latest",
+  "image_id": "sha256:d1418a3b3b3b",
+  "cores": 2,
+  "start_s": 4.52380895614624,
+  "fanout_qos0": [
+   {
+    "delivered_per_s": 555579.0,
+    "published_per_s": 37342.0,
+    "delivery_ratio": 0.14878126506346742,
+    "subscribers": 100,
+    "publishers": 4
+   },
+   {
+    "delivered_per_s": 568778.22,
+    "published_per_s": 43557.11,
+    "delivery_ratio": 0.13058217590652824,
+    "subscribers": 100,
+    "publishers": 4
+   },
+   {
+    "delivered_per_s": 558980.0,
+    "published_per_s": 78240.0,
+    "delivery_ratio": 0.07144427402862985,
+    "subscribers": 100,
+    "publishers": 4
+   }
+  ],
+  "fanout_qos1": [
+   {
+    "delivered_per_s": 17033.0,
+    "published_per_s": 178.0,
+    "delivery_ratio": 0.9569101123595506,
+    "subscribers": 100,
+    "publishers": 4
+   },
+   {
+    "delivered_per_s": 16080.0,
+    "published_per_s": 214.0,
+    "delivery_ratio": 0.7514018691588785,
+    "subscribers": 100,
+    "publishers": 4
+   },
+   {
+    "delivered_per_s": 17876.0,
+    "published_per_s": 208.0,
+    "delivery_ratio": 0.859423076923077,
+    "subscribers": 100,
+    "publishers": 4
+   }
+  ],
+  "latency_idle0": [
+   {
+    "idle_connections": 0,
+    "samples": 20000,
+    "p50_us": 82.799,
+    "p90_us": 107.655,
+    "p99_us": 193.988,
+    "p999_us": 1780.559,
+    "max_us": 14504.496
+   },
+   {
+    "idle_connections": 0,
+    "samples": 20000,
+    "p50_us": 83.656,
+    "p90_us": 105.919,
+    "p99_us": 153.379,
+    "p999_us": 384.507,
+    "max_us": 2201.62
+   },
+   {
+    "idle_connections": 0,
+    "samples": 20000,
+    "p50_us": 87.489,
+    "p90_us": 114.149,
+    "p99_us": 287.879,
+    "p999_us": 586.717,
+    "max_us": 1762.761
+   }
+  ],
+  "latency_idle1000": [
+   {
+    "idle_connections": 1000,
+    "samples": 20000,
+    "p50_us": 123.254,
+    "p90_us": 172.572,
+    "p99_us": 757.6,
+    "p999_us": 1415.335,
+    "max_us": 3098.266
+   },
+   {
+    "idle_connections": 1000,
+    "samples": 20000,
+    "p50_us": 125.472,
+    "p90_us": 188.668,
+    "p99_us": 851.253,
+    "p999_us": 1674.623,
+    "max_us": 6804.941
+   },
+   {
+    "idle_connections": 1000,
+    "samples": 20000,
+    "p50_us": 115.918,
+    "p90_us": 148.055,
+    "p99_us": 222.295,
+    "p999_us": 456.654,
+    "max_us": 1701.135
+   }
+  ],
+  "memory": {
+   "idle_mib": 334.7,
+   "mib_at_1000_connections": 350.6,
+   "mib_at_5000_connections": 453.1,
+   "connected": 5000
+  },
+  "connect": {
+   "connected": 5000,
+   "target": 5000,
+   "peak_per_s": 2446.0,
+   "note": "bounded by the load generator, not necessarily the broker"
+  },
+  "restart_per_run": false,
+  "fanout_qos0_paced": [
+   {
+    "delivered_per_s": 19990.0,
+    "published_per_s": 400.0,
+    "delivery_ratio": 0.9995,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": 200.0
+   },
+   {
+    "delivered_per_s": 20000.0,
+    "published_per_s": 400.0,
+    "delivery_ratio": 1.0,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": 200.0
+   },
+   {
+    "delivered_per_s": 20000.0,
+    "published_per_s": 400.0,
+    "delivery_ratio": 1.0,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": 200.0
+   }
+  ]
+ },
+ "hivemq-ce/2core": {
+  "image": "hivemq/hivemq-ce:latest",
+  "image_id": "sha256:bac6d4d1d815",
+  "cores": 2,
+  "restart_per_run": true,
+  "start_s": 3.2059643268585205,
+  "fanout_qos0_paced": [
+   {
+    "delivered_per_s": 20001.0,
+    "published_per_s": 400.0,
+    "delivery_ratio": 1.00005,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": 200.0
+   },
+   {
+    "delivered_per_s": 20004.0,
+    "published_per_s": 400.0,
+    "delivery_ratio": 1.0002,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": 200.0
+   },
+   {
+    "delivered_per_s": 20013.0,
+    "published_per_s": 400.0,
+    "delivery_ratio": 1.00065,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": 200.0
+   }
+  ],
+  "fanout_qos0": [
+   {
+    "delivered_per_s": 138.25,
+    "published_per_s": 380904.19,
+    "delivery_ratio": 3.6295216390242387e-06,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": null
+   },
+   {
+    "delivered_per_s": 71.96,
+    "published_per_s": 397073.85,
+    "delivery_ratio": 1.8122573420536253e-06,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": null
+   },
+   {
+    "delivered_per_s": 360.0,
+    "published_per_s": 363340.0,
+    "delivery_ratio": 9.90807508119117e-06,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": null
+   }
+  ],
+  "fanout_qos1": [
+   {
+    "delivered_per_s": 18160.0,
+    "published_per_s": 186.0,
+    "delivery_ratio": 0.9763440860215054,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": null
+   },
+   {
+    "delivered_per_s": 16970.0,
+    "published_per_s": 173.0,
+    "delivery_ratio": 0.9809248554913295,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": null
+   },
+   {
+    "delivered_per_s": 18453.0,
+    "published_per_s": 182.0,
+    "delivery_ratio": 1.0139010989010988,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": null
+   }
+  ],
+  "latency_idle0": [
+   {
+    "idle_connections": 0,
+    "samples": 20000,
+    "p50_us": 161.128,
+    "p90_us": 261.988,
+    "p99_us": 529.409,
+    "p999_us": 4882.57,
+    "max_us": 14722.191
+   },
+   {
+    "idle_connections": 0,
+    "samples": 20000,
+    "p50_us": 161.477,
+    "p90_us": 297.017,
+    "p99_us": 560.921,
+    "p999_us": 4329.864,
+    "max_us": 28212.61
+   },
+   {
+    "idle_connections": 0,
+    "samples": 20000,
+    "p50_us": 162.442,
+    "p90_us": 274.715,
+    "p99_us": 630.758,
+    "p999_us": 4498.02,
+    "max_us": 15613.724
+   }
+  ],
+  "latency_idle1000": [
+   {
+    "idle_connections": 1000,
+    "samples": 20000,
+    "p50_us": 156.967,
+    "p90_us": 230.488,
+    "p99_us": 359.418,
+    "p999_us": 4097.985,
+    "max_us": 20793.29
+   },
+   {
+    "idle_connections": 1000,
+    "samples": 20000,
+    "p50_us": 162.522,
+    "p90_us": 260.357,
+    "p99_us": 475.503,
+    "p999_us": 3920.418,
+    "max_us": 12012.325
+   },
+   {
+    "idle_connections": 1000,
+    "samples": 20000,
+    "p50_us": 160.552,
+    "p90_us": 227.266,
+    "p99_us": 415.086,
+    "p999_us": 4484.052,
+    "max_us": 24934.389
+   }
+  ],
+  "memory": {
+   "idle_mib": 187.8,
+   "mib_at_1000_connections": 246.9,
+   "mib_at_5000_connections": 305.8,
+   "connected": 5000
+  },
+  "connect": {
+   "connected": 5000,
+   "target": 5000,
+   "peak_per_s": 2523.0,
+   "note": "bounded by the load generator, not necessarily the broker"
+  }
+ },
+ "mqtt/1core": {
+  "image": "emqx/emqtt-bench:latest",
+  "image_id": "sha256:ae7f2d56cd49",
+  "cores": 1,
+  "restart_per_run": false,
+  "start_s": 0.002177715301513672,
+  "fanout_qos0_paced": [
+   {
+    "delivered_per_s": 20000.0,
+    "published_per_s": 400.0,
+    "delivery_ratio": 1.0,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": 200.0
+   },
+   {
+    "delivered_per_s": 20000.0,
+    "published_per_s": 400.0,
+    "delivery_ratio": 1.0,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": 200.0
+   },
+   {
+    "delivered_per_s": 20000.0,
+    "published_per_s": 400.0,
+    "delivery_ratio": 1.0,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": 200.0
+   },
+   {
+    "delivered_per_s": 20000.0,
+    "published_per_s": 400.0,
+    "delivery_ratio": 1.0,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": 200.0
+   },
+   {
+    "delivered_per_s": 19978.0,
+    "published_per_s": 400.0,
+    "delivery_ratio": 0.9989,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": 200.0
+   }
+  ],
+  "fanout_qos0": [
+   {
+    "delivered_per_s": 602573.57,
+    "published_per_s": 139378.0,
+    "delivery_ratio": 0.043233047539783895,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": null
+   },
+   {
+    "delivered_per_s": 618751.0,
+    "published_per_s": 120138.14,
+    "delivery_ratio": 0.0515032944575303,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": null
+   },
+   {
+    "delivered_per_s": 347192.08,
+    "published_per_s": 113956.0,
+    "delivery_ratio": 0.03046720488609639,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": null
+   },
+   {
+    "delivered_per_s": 345588.0,
+    "published_per_s": 112742.29,
+    "delivery_ratio": 0.030652916487681776,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": null
+   },
+   {
+    "delivered_per_s": 348765.0,
+    "published_per_s": 106356.0,
+    "delivery_ratio": 0.03279222610854113,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": null
+   }
+  ],
+  "fanout_qos1": [
+   {
+    "delivered_per_s": 78226.135,
+    "published_per_s": 26129.0,
+    "delivery_ratio": 0.02993843430670902,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": null
+   },
+   {
+    "delivered_per_s": 77633.9,
+    "published_per_s": 25851.0,
+    "delivery_ratio": 0.03003129472747669,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": null
+   },
+   {
+    "delivered_per_s": 81803.805,
+    "published_per_s": 26714.0,
+    "delivery_ratio": 0.03062207269596466,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": null
+   },
+   {
+    "delivered_per_s": 74344.46,
+    "published_per_s": 23115.46,
+    "delivery_ratio": 0.032162223896907094,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": null
+   },
+   {
+    "delivered_per_s": 71459.0,
+    "published_per_s": 27352.0,
+    "delivery_ratio": 0.026125694647557766,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": null
+   }
+  ],
+  "latency_idle0": [
+   {
+    "idle_connections": 0,
+    "samples": 20000,
+    "p50_us": 42.648,
+    "p90_us": 55.982,
+    "p99_us": 81.555,
+    "p999_us": 160.999,
+    "max_us": 518.67
+   },
+   {
+    "idle_connections": 0,
+    "samples": 20000,
+    "p50_us": 41.692,
+    "p90_us": 49.224,
+    "p99_us": 76.227,
+    "p999_us": 142.8,
+    "max_us": 448.157
+   },
+   {
+    "idle_connections": 0,
+    "samples": 20000,
+    "p50_us": 42.153,
+    "p90_us": 52.851,
+    "p99_us": 78.422,
+    "p999_us": 113.255,
+    "max_us": 525.093
+   },
+   {
+    "idle_connections": 0,
+    "samples": 20000,
+    "p50_us": 42.6,
+    "p90_us": 54.857,
+    "p99_us": 92.573,
+    "p999_us": 260.044,
+    "max_us": 1254.244
+   },
+   {
+    "idle_connections": 0,
+    "samples": 20000,
+    "p50_us": 42.307,
+    "p90_us": 52.232,
+    "p99_us": 76.822,
+    "p999_us": 109.175,
+    "max_us": 4983.443
+   }
+  ],
+  "latency_idle1000": [
+   {
+    "idle_connections": 1000,
+    "samples": 20000,
+    "p50_us": 41.664,
+    "p90_us": 51.017,
+    "p99_us": 75.6,
+    "p999_us": 104.064,
+    "max_us": 748.739
+   },
+   {
+    "idle_connections": 1000,
+    "samples": 20000,
+    "p50_us": 41.651,
+    "p90_us": 49.227,
+    "p99_us": 74.012,
+    "p999_us": 110.791,
+    "max_us": 1163.482
+   },
+   {
+    "idle_connections": 1000,
+    "samples": 20000,
+    "p50_us": 45.333,
+    "p90_us": 57.98,
+    "p99_us": 246.005,
+    "p999_us": 1011.316,
+    "max_us": 3467.97
+   },
+   {
+    "idle_connections": 1000,
+    "samples": 20000,
+    "p50_us": 41.746,
+    "p90_us": 50.975,
+    "p99_us": 77.253,
+    "p999_us": 112.81,
+    "max_us": 1111.623
+   },
+   {
+    "idle_connections": 1000,
+    "samples": 20000,
+    "p50_us": 42.278,
+    "p90_us": 54.558,
+    "p99_us": 79.224,
+    "p999_us": 148.273,
+    "max_us": 362.536
+   }
+  ],
+  "memory": {
+   "idle_mib": 15.59,
+   "mib_at_1000_connections": 17.09,
+   "mib_at_5000_connections": 55.84,
+   "connected": 5000
+  },
+  "connect": {
+   "connected": 5000,
+   "target": 5000,
+   "peak_per_s": 2437.0,
+   "note": "bounded by the load generator, not necessarily the broker"
+  }
+ },
+ "mqtt/2core": {
+  "image": "emqx/emqtt-bench:latest",
+  "image_id": "sha256:ae7f2d56cd49",
+  "cores": 2,
+  "restart_per_run": false,
+  "start_s": 0.002731800079345703,
+  "fanout_qos0_paced": [
+   {
+    "delivered_per_s": 20000.0,
+    "published_per_s": 400.0,
+    "delivery_ratio": 1.0,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": 200.0
+   },
+   {
+    "delivered_per_s": 20000.0,
+    "published_per_s": 400.0,
+    "delivery_ratio": 1.0,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": 200.0
+   },
+   {
+    "delivered_per_s": 20000.0,
+    "published_per_s": 400.0,
+    "delivery_ratio": 1.0,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": 200.0
+   },
+   {
+    "delivered_per_s": 20000.0,
+    "published_per_s": 400.0,
+    "delivery_ratio": 1.0,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": 200.0
+   },
+   {
+    "delivered_per_s": 20000.0,
+    "published_per_s": 400.0,
+    "delivery_ratio": 1.0,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": 200.0
+   }
+  ],
+  "fanout_qos0": [
+   {
+    "delivered_per_s": 663663.02,
+    "published_per_s": 147100.0,
+    "delivery_ratio": 0.0451164527532291,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": null
+   },
+   {
+    "delivered_per_s": 666946.16,
+    "published_per_s": 148737.26,
+    "delivery_ratio": 0.04484055710048713,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": null
+   },
+   {
+    "delivered_per_s": 638544.37,
+    "published_per_s": 121376.0,
+    "delivery_ratio": 0.0526087834497759,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": null
+   },
+   {
+    "delivered_per_s": 617537.0,
+    "published_per_s": 143382.0,
+    "delivery_ratio": 0.04306935319635659,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": null
+   },
+   {
+    "delivered_per_s": 618873.63,
+    "published_per_s": 122480.0,
+    "delivery_ratio": 0.05052854588504246,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": null
+   }
+  ],
+  "fanout_qos1": [
+   {
+    "delivered_per_s": 63166.33,
+    "published_per_s": 26699.1,
+    "delivery_ratio": 0.0236585989789918,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": null
+   },
+   {
+    "delivered_per_s": 83192.81,
+    "published_per_s": 26571.0,
+    "delivery_ratio": 0.03130962703699522,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": null
+   },
+   {
+    "delivered_per_s": 77483.52,
+    "published_per_s": 27057.0,
+    "delivery_ratio": 0.028637143807517463,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": null
+   },
+   {
+    "delivered_per_s": 82392.01,
+    "published_per_s": 24519.0,
+    "delivery_ratio": 0.033603332109792404,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": null
+   },
+   {
+    "delivered_per_s": 71504.5,
+    "published_per_s": 26558.0,
+    "delivery_ratio": 0.02692390240228933,
+    "subscribers": 100,
+    "publishers": 4,
+    "offered_msgs_per_s": null
+   }
+  ],
+  "latency_idle0": [
+   {
+    "idle_connections": 0,
+    "samples": 20000,
+    "p50_us": 41.854,
+    "p90_us": 50.216,
+    "p99_us": 75.908,
+    "p999_us": 126.622,
+    "max_us": 304.194
+   },
+   {
+    "idle_connections": 0,
+    "samples": 20000,
+    "p50_us": 41.716,
+    "p90_us": 49.436,
+    "p99_us": 74.388,
+    "p999_us": 128.332,
+    "max_us": 281.605
+   },
+   {
+    "idle_connections": 0,
+    "samples": 20000,
+    "p50_us": 41.808,
+    "p90_us": 50.06,
+    "p99_us": 72.96,
+    "p999_us": 111.148,
+    "max_us": 215.826
+   },
+   {
+    "idle_connections": 0,
+    "samples": 20000,
+    "p50_us": 41.837,
+    "p90_us": 49.612,
+    "p99_us": 72.532,
+    "p999_us": 106.336,
+    "max_us": 214.126
+   },
+   {
+    "idle_connections": 0,
+    "samples": 20000,
+    "p50_us": 44.259,
+    "p90_us": 56.408,
+    "p99_us": 95.995,
+    "p999_us": 248.319,
+    "max_us": 621.72
+   }
+  ],
+  "latency_idle1000": [
+   {
+    "idle_connections": 1000,
+    "samples": 20000,
+    "p50_us": 42.548,
+    "p90_us": 51.215,
+    "p99_us": 77.295,
+    "p999_us": 151.732,
+    "max_us": 507.16
+   },
+   {
+    "idle_connections": 1000,
+    "samples": 20000,
+    "p50_us": 48.507,
+    "p90_us": 64.918,
+    "p99_us": 161.549,
+    "p999_us": 575.884,
+    "max_us": 1922.877
+   },
+   {
+    "idle_connections": 1000,
+    "samples": 20000,
+    "p50_us": 43.42,
+    "p90_us": 52.088,
+    "p99_us": 81.561,
+    "p999_us": 229.632,
+    "max_us": 865.913
+   },
+   {
+    "idle_connections": 1000,
+    "samples": 20000,
+    "p50_us": 43.176,
+    "p90_us": 54.008,
+    "p99_us": 89.855,
+    "p999_us": 286.181,
+    "max_us": 987.495
+   },
+   {
+    "idle_connections": 1000,
+    "samples": 20000,
+    "p50_us": 42.906,
+    "p90_us": 52.632,
+    "p99_us": 75.172,
+    "p999_us": 113.913,
+    "max_us": 2434.651
+   }
+  ],
+  "memory": {
+   "idle_mib": 15.58,
+   "mib_at_1000_connections": 17.33,
+   "mib_at_5000_connections": 55.82,
+   "connected": 5000
+  },
+  "connect": {
+   "connected": 5000,
+   "target": 5000,
+   "peak_per_s": 2470.0,
+   "note": "bounded by the load generator, not necessarily the broker"
+  }
+ }
+}
