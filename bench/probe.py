@@ -27,7 +27,7 @@ def packet(first, body):
     return bytes([first]) + _remaining(len(body)) + body
 
 
-def connect(host, port, client_id, keepalive=60, timeout=5.0):
+def connect(host, port, client_id, keepalive=60, timeout=30.0):
     s = socket.create_connection((host, port), timeout=timeout)
     s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
     body = _str(b"MQTT") + bytes([4, 2]) + keepalive.to_bytes(2, "big") + _str(client_id.encode())

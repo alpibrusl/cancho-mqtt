@@ -24,6 +24,7 @@ import probe  # noqa: E402
 HERE = os.path.dirname(os.path.abspath(__file__))
 LOADGEN = "emqx/emqtt-bench:latest"
 HOST = "127.0.0.1"
+SETTLE_S = 8  # let a broker drain what the previous cell left queued
 NCPU = os.cpu_count()
 LOAD_CPUS = "%d,%d" % (NCPU - 2, NCPU - 1)
 
@@ -33,7 +34,8 @@ BROKERS = {
     "emqx": dict(image="emqx/emqx:5.8.6", args=[], env={}, volumes=[]),
     "nanomq": dict(image="emqx/nanomq:latest", args=[], env={}, volumes=[]),
     "vernemq": dict(image="vernemq/vernemq:latest", args=[], volumes=[],
-                    env={"DOCKER_VERNEMQ_ACCEPT_EULA": "yes", "DOCKER_VERNEMQ_ALLOW_ANONYMOUS": "on"}),
+                    env={"DOCKER_VERNEMQ_ACCEPT_EULA": "yes", "DOCKER_VERNEMQ_ALLOW_ANONYMOUS": "on",
+                         "DOCKER_VERNEMQ_LISTENER__TCP__DEFAULT": "0.0.0.0:1883"}),
     "hivemq-ce": dict(image="hivemq/hivemq-ce:latest", args=[], env={}, volumes=[]),
 }
 
@@ -129,7 +131,7 @@ def latency_cell(idle):
     if idle:
         names.append(idle_connections(idle))
     os.sched_setaffinity(0, {NCPU - 1})
-    s = probe.latency(HOST, 1883, samples=20000, warmup=1000)
+    s = probe.latency(HOST, 1883, samples=20000, warmup=3000)
     os.sched_setaffinity(0, set(range(NCPU)))
     loadgen_collect(*names)
     pct = lambda p: s[min(len(s) - 1, int(len(s) * p))] / 1000.0
@@ -172,8 +174,15 @@ def run_broker(name, cores, runs):
             result[cell] = []
             for r in range(runs):
                 print("  %s run %d" % (cell, r + 1), flush=True)
-                result[cell].append(fn())
+                time.sleep(SETTLE_S)
+                try:
+                    result[cell].append(fn())
+                except Exception as e:  # one cell failing does not hide the others
+                    result.setdefault("cell_errors", []).append({"cell": cell, "run": r + 1, "error": repr(e)})
+                    print("  cell failed: %r" % e, flush=True)
+                    loadgen_collect(*[n for n in sh("docker", "ps", "-a", "--format", "{{.Names}}").split() if n.startswith("lg-")])
         print("  memory", flush=True)
+        time.sleep(SETTLE_S)
         result["memory"] = memory_cell()
     finally:
         stop_broker()
