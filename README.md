@@ -1,21 +1,44 @@
 # lexsys-mqtt
 
-An MQTT 3.1.1 broker written in [lex-sys](https://github.com/alpibrusl/lex-sys): no `Ffi`, no `unsafe`, and a checkable
-authority report. The model is [`lexsys-cache`](https://github.com/alpibrusl/lexsys-cache): one thread with one poller,
-memory sized at start, a binary protocol parsed with bounds, and measurements against the incumbent (Mosquitto) fixed
-before the code.
+An MQTT 3.1.1 broker written in [lex-sys](https://github.com/alpibrusl/lex-sys): no `Ffi`, no `unsafe`, no file access,
+and an authority report the compiler derives and CI checks. One thread on one `Poller`, memory with a ceiling stated at
+start, every input bounded, and an agent-first command line, error and log surface
+([docs/design.md](docs/design.md) section 5a).
 
-**Status: design stage. Nothing is built.** The plan and its tasks are in the epic issue. The first deliverable is
-`docs/design.md`: scope, the authority row, the gates, written before any code.
+```sh
+lex-sys build                                 # needs the compiler named in lex-sys.toml
+build/mqtt serve --port 1883                  # NDJSON log on stdout; SIGINT or SIGTERM ends it with an end record
+build/mqtt introspect                         # flags, limits, rules, exit codes, authority, as JSON
+build/mqtt skill                              # the same as an agentskills.io SKILL.md
+build/mqtt rules                              # every connection-level rule and what the broker does
+```
 
-## Intended scope (v1)
+**In v1:** CONNECT/CONNACK, keep-alive, clean and persistent sessions, will messages, SUBSCRIBE with `+` and `#`,
+PUBLISH at QoS 0 and 1 (in-flight window, DUP redelivery), retained messages, bounded per-session queues, every bound a
+flag with a stated ceiling. **Not in v1:** QoS 2, persistence across restarts, TLS (it needs foreign code and would make the
+authority report unbounded), authentication, MQTT 5, websockets, `$SYS`, clustering ([docs/design.md](docs/design.md)
+section 1, issue #13).
 
-MQTT 3.1.1 over plain TCP: CONNECT/CONNACK, keepalive, clean sessions, will messages, SUBSCRIBE with `+` and `#`
-wildcards, PUBLISH at QoS 0 and 1, retained messages, bounded per-subscriber queues. Not in v1: QoS 2, persistence,
-TLS (it needs foreign code and would make the authority report unbounded), MQTT 5, websockets, clustering.
+## What has been checked, and how
 
-## Why a repository of its own
+| What | Where | Run by |
+|---|---|---|
+| Codec, topics, trie (incl. the trie against the reference matcher for every filter and name of up to three levels), config | `tests/*.ls`, `lex-sys test` | CI |
+| Every connection-level rule has a fixture (28), the protocol statements the broker claims | `tests/conformance/test_rules.py`, `test_protocol.py`; [docs/conformance.md](docs/conformance.md) | CI |
+| The agent-first surface: flag table equals design section 4, every log line validates against `schemas/mqtt.v1.json`, repairs applied by script, graceful stop | `test_cli.py` | CI |
+| Real clients: `paho-mqtt`, `mosquitto_pub`/`mosquitto_sub` | `test_interop.py` | CI |
+| What clients observe equals Mosquitto's, on written and generated scenarios; two differences written down and asserted | `test_differential.py` | CI |
+| Hostile input: 6,400 random, mutated, oversized and split connections; slowloris; tight bounds | `test_fuzz.py` | CI |
+| Resident memory flat under churn and under the stated ceiling | `test_memory.py` | CI |
+| Authority within `ceiling.toml`, and the gate refuses four mutants | `scripts/manifest.py`, `scripts/mutants.py` | CI |
+| Throughput, latency and memory against Mosquitto, EMQX, NanoMQ, VerneMQ, HiveMQ CE | `bench/`, `docs/benchmark.md` | by hand |
 
-The cache's claim is that it never touches the filesystem. A broker that may persist or log would change that claim,
-and in this toolbox one program carries one authority row. The server skeleton is shared by pattern, not by code, until
-a second user shows what is worth extracting.
+What has **not** been checked is listed where it is claimed: the end of [docs/conformance.md](docs/conformance.md), the
+"Gap" list in [docs/design.md](docs/design.md) section 12, and the caveats of [docs/benchmark.md](docs/benchmark.md).
+
+## Layout
+
+`src/` the broker (`wire` codec, `topic` and `subs` the subscription trie, `tables` the tables and queues, `broker` the
+connections and routing, `logs`, `config`, `rules`, `main`); `tests/` lex-sys unit tests and `tests/conformance/` the
+black-box suite; `scripts/` the gates; `bench/` the benchmark harness; `docs/design.md` is written before the code and
+corrected in place where building or measuring disagreed. [`CLAUDE.md`](CLAUDE.md) has the rules for changing it.

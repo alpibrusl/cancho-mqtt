@@ -1,0 +1,34 @@
+[package]
+name = "lexsys-mqtt"
+lex-sys = "f7e73075244698e460df333a56f4c15b300190f0"   # the compiler these sources were written for
+
+[[bin]]
+name = "mqtt"
+sources = ["src", "generated/mqtt"]
+std = true
+out = "build/mqtt"
+
+[[test]]
+name = "wire"
+sources = ["src/wire.ls", "tests/wire_test.ls"]
+std = true
+
+[[test]]
+name = "topic"
+sources = ["src/topic.ls", "tests/topic_test.ls"]
+std = true
+
+[[test]]
+name = "subs"
+sources = ["src/topic.ls", "src/subs.ls", "tests/subs_test.ls"]
+std = true
+
+[[test]]
+name = "config"
+sources = ["src/config.ls", "tests/config_test.ls"]
+std = true
+
+[dependencies.describe]
+git = "https://github.com/alpibrusl/lexsys-tools"
+rev = "5634a4a7108a675c0eab0412e96a57685beac9cb"
+path = ".lex-sys-vcs/toolbox.describe"
