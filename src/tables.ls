@@ -63,7 +63,7 @@ pub fn c_stride() -> [] int {
 }
 
 pub fn s_stride() -> [] int {
-    return 20;
+    return 21;
 }
 
 // Counters not tied to a rule, in `ctr` after the rules'.
@@ -146,6 +146,10 @@ pub res struct Core {
     evtext: Box[[byte]],
     foreign: Box[[int]],
     stage: Box[[byte]],
+    spill: Box[[int]],
+    qfree: Box[[int]],
+    free_spill: int,
+    free_q: int,
     limit: int,
     pmax: int,
     qbytes: int,
@@ -196,6 +200,7 @@ pub fn open[&h, &g](heap: &!h Heap, poller: Poller, cfg: &g [int]) -> [heap] Cor
         while i < nsess {
             sd[s_stride() * i + 1] = 0 - 1;
             sd[s_stride() * i + 5] = 0 - 1;
+            sd[s_stride() * i + 20] = 0 - 1;
             sd[s_stride() * i + 19] = i + 1;
             if i + 1 == nsess {
                 sd[s_stride() * i + 19] = 0 - 1;
@@ -209,15 +214,38 @@ pub fn open[&h, &g](heap: &!h Heap, poller: Poller, cfg: &g [int]) -> [heap] Cor
         var i = 0;
         while i < limit {
             cd[c_stride() * i + 3] = 0 - 1;
+            cd[c_stride() * i + 12] = 0 - 1;
             i = i + 1;
         }
     }
+    // Free lists of the lazily attached buffers: one entry per slot, each pointing
+    // at the next, the last at -1.
+    var spill = box_slice(heap, limit, 0);
+    borrow mut spill as &!pb in {
+        let pd = contents(pb);
+        var i = 0;
+        while i < limit {
+            pd[i] = i + 1;
+            i = i + 1;
+        }
+        pd[limit - 1] = 0 - 1;
+    }
+    var qfree = box_slice(heap, nsess, 0);
+    borrow mut qfree as &!qb in {
+        let qd = contents(qb);
+        var i = 0;
+        while i < nsess {
+            qd[i] = i + 1;
+            i = i + 1;
+        }
+        qd[nsess - 1] = 0 - 1;
+    }
     let trie = subs.open(heap, cfg[config.i_nodes()], cfg[config.i_subs_total()], nsess, cfg[config.i_levels()], cfg[config.i_subs_client()]);
-    return Core { poller: poller, events: box_slice(heap, 128, 0), cs: cs, inbuf: box_slice(heap, limit * pmax, byte_of(0)), ss: ss, sid: box_slice(heap, nsess * idmax, byte_of(0)), qbuf: box_slice(heap, nsess * qbytes, byte_of(0)), wbuf: box_slice(heap, nsess * will_max, byte_of(0)), idb: box_slice(heap, 2 * nsess + 1, 0 - 1), rt: box_slice(heap, 4 * nret, 0), rtext: box_slice(heap, nret * rslot, byte_of(0)), trie: trie, ct: box_slice(heap, wire.connect_slots(), 0), pt: box_slice(heap, wire.publish_slots(), 0), ft: box_slice(heap, wire.filter_slots(), 0), codes: box_slice(heap, wire.max_filters(), 0), dirty: box_slice(heap, 2 * limit + 8, 0), ctr: box_slice(heap, counters(), 0), evq: box_slice(heap, 6 * event_capacity(), 0), evtext: box_slice(heap, event_text() * event_capacity(), byte_of(0)), foreign: box_slice(heap, 32, 0), stage: box_slice(heap, stage_bytes(), byte_of(0)), limit: limit, pmax: pmax, qbytes: qbytes, qmsgs: cfg[config.i_queue_messages()], window: cfg[config.i_inflight()], nsess: nsess, noffline: noffline, idmax: idmax, topic_max: cfg[config.i_topic_max()], levels_max: cfg[config.i_levels()], nret: nret, rslot: rslot, will_max: will_max, connect_to: cfg[config.i_connect_timeout()], stall_to: cfg[config.i_write_stall()], free_sess: 0, online: 0, offline: 0, retained_used: 0, ndirty: 0, ev_head: 0, ev_count: 0, now: 0, now_ms: 0, last_sweep: 0, auto_id: 0, nforeign: 0, start_ms: 0 };
+    return Core { poller: poller, events: box_slice(heap, 128, 0), cs: cs, inbuf: box_slice(heap, (limit + 1) * pmax, byte_of(0)), ss: ss, sid: box_slice(heap, nsess * idmax, byte_of(0)), qbuf: box_slice(heap, nsess * qbytes, byte_of(0)), wbuf: box_slice(heap, nsess * will_max, byte_of(0)), idb: box_slice(heap, 2 * nsess + 1, 0 - 1), rt: box_slice(heap, 4 * nret, 0), rtext: box_slice(heap, nret * rslot, byte_of(0)), trie: trie, ct: box_slice(heap, wire.connect_slots(), 0), pt: box_slice(heap, wire.publish_slots(), 0), ft: box_slice(heap, wire.filter_slots(), 0), codes: box_slice(heap, wire.max_filters(), 0), dirty: box_slice(heap, 2 * limit + 8, 0), ctr: box_slice(heap, counters(), 0), evq: box_slice(heap, 6 * event_capacity(), 0), evtext: box_slice(heap, event_text() * event_capacity(), byte_of(0)), foreign: box_slice(heap, 32, 0), stage: box_slice(heap, stage_bytes(), byte_of(0)), spill: spill, qfree: qfree, free_spill: 0, free_q: 0, limit: limit, pmax: pmax, qbytes: qbytes, qmsgs: cfg[config.i_queue_messages()], window: cfg[config.i_inflight()], nsess: nsess, noffline: noffline, idmax: idmax, topic_max: cfg[config.i_topic_max()], levels_max: cfg[config.i_levels()], nret: nret, rslot: rslot, will_max: will_max, connect_to: cfg[config.i_connect_timeout()], stall_to: cfg[config.i_write_stall()], free_sess: 0, online: 0, offline: 0, retained_used: 0, ndirty: 0, ev_head: 0, ev_count: 0, now: 0, now_ms: 0, last_sweep: 0, auto_id: 0, nforeign: 0, start_ms: 0 };
 }
 
 pub fn drop[&h](heap: &!h Heap, core: Core) -> [heap] int {
-    let Core { poller, events, cs, inbuf, ss, sid, qbuf, wbuf, idb, rt, rtext, trie, ct, pt, ft, codes, dirty, ctr, evq, evtext, foreign, stage, limit, pmax, qbytes, qmsgs, window, nsess, noffline, idmax, topic_max, levels_max, nret, rslot, will_max, connect_to, stall_to, free_sess, online, offline, retained_used, ndirty, ev_head, ev_count, now, now_ms, last_sweep, auto_id, nforeign, start_ms } = core;
+    let Core { poller, events, cs, inbuf, ss, sid, qbuf, wbuf, idb, rt, rtext, trie, ct, pt, ft, codes, dirty, ctr, evq, evtext, foreign, stage, spill, qfree, free_spill, free_q, limit, pmax, qbytes, qmsgs, window, nsess, noffline, idmax, topic_max, levels_max, nret, rslot, will_max, connect_to, stall_to, free_sess, online, offline, retained_used, ndirty, ev_head, ev_count, now, now_ms, last_sweep, auto_id, nforeign, start_ms } = core;
     poller_close(poller);
     unbox_slice(heap, events);
     unbox_slice(heap, cs);
@@ -240,6 +268,8 @@ pub fn drop[&h](heap: &!h Heap, core: Core) -> [heap] int {
     unbox_slice(heap, evtext);
     unbox_slice(heap, foreign);
     unbox_slice(heap, stage);
+    unbox_slice(heap, spill);
+    unbox_slice(heap, qfree);
     return 0;
 }
 
@@ -423,6 +453,7 @@ pub fn free_session[&c](core: &!c Core, s: int) -> [] int {
             sd[s_stride() * at + 5] = sd[p + 5];
         }
     }
+    q_give(core, s);
     sd[p] = 0;
     sd[p + 1] = 0 - 1;
     sd[p + 3] = 0;
@@ -446,12 +477,83 @@ fn put32[&q](q: &!q [byte], at: int, v: int) -> [] int {
 }
 
 // Session `s`'s queue, as a slice of the slab.
+// A queue holds a buffer only while it has entries (`q_take` and `q_give`); an
+// empty one answers an empty slice.
 pub fn queue[&c](core: &!c Core, s: int) -> [] &!c [byte] {
-    return contents(core.qbuf)[s * core.qbytes..(s + 1) * core.qbytes];
+    let q = contents(core.ss)[s_stride() * s + 20];
+    if q < 0 {
+        return contents(core.qbuf)[0..0];
+    }
+    return contents(core.qbuf)[q * core.qbytes..(q + 1) * core.qbytes];
 }
 
 pub fn queue_view[&c](core: &c Core, s: int) -> [] &c [byte] {
-    return contents(core.qbuf)[s * core.qbytes..(s + 1) * core.qbytes];
+    let q = contents(core.ss)[s_stride() * s + 20];
+    if q < 0 {
+        return contents(core.qbuf)[0..0];
+    }
+    return contents(core.qbuf)[q * core.qbytes..(q + 1) * core.qbytes];
+}
+
+// Give session `s` a buffer from the pool (there are as many as sessions, so one
+// is always free for a session without one). The most recently freed is reused
+// first, so the pages a broker touches are those of its busiest moment, not of
+// its connection count.
+fn q_take[&c](core: &!c Core, s: int) -> [] int {
+    let sd = contents(core.ss);
+    let p = s_stride() * s;
+    if sd[p + 20] >= 0 {
+        return 0;
+    }
+    let q = core.free_q;
+    if q < 0 {
+        return 0 - 1;
+    }
+    core.free_q = contents(core.qfree)[q];
+    sd[p + 20] = q;
+    return 0;
+}
+
+// Return session `s`'s buffer to the pool; the queue must be empty.
+fn q_give[&c](core: &!c Core, s: int) -> [] int {
+    let sd = contents(core.ss);
+    let p = s_stride() * s;
+    let q = sd[p + 20];
+    if q >= 0 {
+        contents(core.qfree)[q] = core.free_q;
+        core.free_q = q;
+        sd[p + 20] = 0 - 1;
+    }
+    return 0;
+}
+
+// Connection `k`'s spill slot (the input of a packet still arriving, see
+// `broker.process_input`): its offset in `inbuf`, taking a slot if it has none.
+// Slot 0 of `inbuf` is the scratch every read lands in.
+pub fn spill_take[&c](core: &!c Core, k: int) -> [] int {
+    let cd = contents(core.cs);
+    let p = c_stride() * k;
+    if cd[p + 12] < 0 {
+        let n = core.free_spill;
+        if n < 0 {
+            return 0 - 1;
+        }
+        core.free_spill = contents(core.spill)[n];
+        cd[p + 12] = n;
+    }
+    return (cd[p + 12] + 1) * core.pmax;
+}
+
+pub fn spill_give[&c](core: &!c Core, k: int) -> [] int {
+    let cd = contents(core.cs);
+    let p = c_stride() * k;
+    let n = cd[p + 12];
+    if n >= 0 {
+        contents(core.spill)[n] = core.free_spill;
+        core.free_spill = n;
+        cd[p + 12] = 0 - 1;
+    }
+    return 0;
 }
 
 // Empty session `s`'s queue.
@@ -464,6 +566,7 @@ pub fn q_reset[&c](core: &!c Core, s: int) -> [] int {
     sd[p + 9] = 0;
     sd[p + 10] = 0;
     sd[p + 11] = 0;
+    q_give(core, s);
     return 0;
 }
 
@@ -499,6 +602,9 @@ pub fn q_reserve[&c](core: &!c Core, s: int, size: int, message: bool) -> [] int
         if sd[p + 7] + need > room {
             return 0 - 1;
         }
+    }
+    if q_take(core, s) != 0 {
+        return 0 - 1;
     }
     return sd[p + 7] + 8;
 }
@@ -587,6 +693,7 @@ pub fn q_trim[&c](core: &!c Core, s: int) -> [] int {
         sd[p + 7] = 0;
         sd[p + 8] = 0;
         sd[p + 9] = 0;
+        q_give(core, s);
     }
     return 0;
 }
@@ -632,6 +739,7 @@ pub fn q_going_offline[&c](core: &!c Core, s: int) -> [] int {
         sd[p + 6] = 0;
         sd[p + 7] = 0;
         sd[p + 8] = 0;
+        q_give(core, s);
     }
     return 0;
 }

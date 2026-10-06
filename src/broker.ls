@@ -74,6 +74,7 @@ fn shut[&t, &c](tab: &!t conns.Table, core: &!c tables.Core, k: int) -> [] int {
     let p = tables.c_stride() * k;
     cd[p] = 0;
     cd[p + 1] = 0;
+    tables.spill_give(core, k);
     cd[p + 3] = 0 - 1;
     cd[p + 6] = 0;
     cd[p + 8] = 0;
@@ -743,17 +744,19 @@ fn handle_packet[&t, &c, &p](tab: &!t conns.Table, core: &!c tables.Core, k: int
     return 1;
 }
 
-// Handle every whole packet connection `k` has buffered, then slide what is left
-// (the start of a packet still arriving) to the front of its buffer.
-fn process_input[&t, &c](tab: &!t conns.Table, core: &!c tables.Core, k: int) -> [conn_write] int {
+// Handle every whole packet in the first `n` bytes of the scratch (slot 0 of
+// `inbuf`), then keep what is left (the start of a packet still arriving) in
+// connection `k`'s spill slot. A connection holds a slot only while a packet is
+// split across reads, so the pages a broker touches follow what is in flight, not
+// the number of connections.
+fn process_input[&t, &c](tab: &!t conns.Table, core: &!c tables.Core, k: int, n: int) -> [conn_write] int {
     let cd = contents(core.cs);
     let cp = tables.c_stride() * k;
-    let base = k * core.pmax;
     let bf = contents(core.inbuf);
     var used = 0;
     var open = true;
-    while open && used < cd[cp + 1] {
-        let view = bf[base + used..base + cd[cp + 1]];
+    while open && used < n {
+        let view = bf[used..n];
         let total = wire.header(view, core.pmax);
         if total == wire.incomplete() || total > len(view) {
             // The rest has not arrived yet.
@@ -762,16 +765,23 @@ fn process_input[&t, &c](tab: &!t conns.Table, core: &!c tables.Core, k: int) ->
             close_conn(tab, core, k, rules.of_wire(total), true, true);
             return 1;
         } else {
-            let before = cd[cp + 3];
             if handle_packet(tab, core, k, view[0..total]) == 1 {
                 return 1;
             }
             used = used + total;
         }
     }
-    if used > 0 {
-        copy_within(bf[base..base + core.pmax], 0, used, cd[cp + 1] - used);
-        cd[cp + 1] = cd[cp + 1] - used;
+    let left = n - used;
+    cd[cp + 1] = left;
+    if left == 0 {
+        tables.spill_give(core, k);
+    } else {
+        let at = tables.spill_take(core, k);
+        if at < 0 {
+            close_conn(tab, core, k, rules.output_full(), true, true);
+            return 1;
+        }
+        copy_into(bf[at..at + left], bf[used..n]);
     }
     return 0;
 }
@@ -784,11 +794,19 @@ fn step[&t, &c](tab: &!t conns.Table, core: &!c tables.Core, k: int, events: int
     let cd = contents(core.cs);
     let cp = tables.c_stride() * k;
     if events & 1 != 0 {
-        let base = k * core.pmax;
+        // What is pending from a split packet is copied to the scratch, and the read
+        // lands after it.
+        let pending = cd[cp + 1];
+        let bf = contents(core.inbuf);
+        if pending > 0 {
+            let at = (cd[cp + 12] + 1) * core.pmax;
+            copy_into(bf[0..pending], bf[at..at + pending]);
+        }
         var code = 0;
-        match conns.read(tab, k, contents(core.inbuf)[base + cd[cp + 1]..base + core.pmax]) {
+        var have = 0;
+        match conns.read(tab, k, bf[pending..core.pmax]) {
             Received::Data(got) => {
-                cd[cp + 1] = cd[cp + 1] + got;
+                have = pending + got;
                 cd[cp + 2] = now;
                 code = 1;
             }
@@ -806,7 +824,7 @@ fn step[&t, &c](tab: &!t conns.Table, core: &!c tables.Core, k: int, events: int
             return 0;
         }
         if code == 1 {
-            if process_input(tab, core, k) == 1 {
+            if process_input(tab, core, k, have) == 1 {
                 return 0;
             }
         }

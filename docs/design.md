@@ -131,7 +131,7 @@ lowered to 16 KiB and 32 KiB so that the tables the broker allocates at start ar
 **What "sized at start" means, measured (issue #11).** The tables are allocated at start from the bounds and never grow;
 the operating system commits their pages as they are used. An idle broker is therefore small (about 3 MiB resident
 with the default bounds, against 73 MiB of tables) and a full one is no larger than `memory_bytes` plus the program
-(`test_memory.py` asserts both, and that the resident size after 6,000 rounds of connects, sessions, subscriptions,
+(an input buffer and a queue buffer are attached to a connection or session only while they hold something, so an idle connection costs about 0.3 KiB resident, see `docs/benchmark.md`) (`test_memory.py` asserts both, and that the resident size after 6,000 rounds of connects, sessions, subscriptions,
 retained messages, wills and refusals is within 1 MiB of what it was after a warm-up). The claim is that memory has a
 ceiling stated at start, not that all of it is touched at start.
 
