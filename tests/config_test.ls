@@ -1,0 +1,47 @@
+edition 5;
+
+import std.bytes;
+import std.test;
+import mqtt.config;
+
+pub fn test_limits_line_up_with_the_flag_table() -> [] int {
+    var i = 0;
+    while i < config.flags() {
+        let flag = bytes.field(bytes.field(config.flag_table(), 59, i + 1), 124, 1);
+        let limit = bytes.field(bytes.field(config.limits(), 59, i + 1), 124, 1);
+        test.assert(bytes.equal(flag, limit));
+        test.assert(config.default_of(i) >= 0);
+        test.assert(config.ceiling_of(i) >= config.default_of(i));
+        // The flag table states the same default.
+        test.assert_eq(config.number(bytes.field(bytes.field(config.flag_table(), 59, i + 1), 124, 5)), config.default_of(i));
+        i = i + 1;
+    }
+    // One more entry than flags would mean the tables disagree about the count.
+    test.assert_eq(bytes.count_byte(config.flag_table(), 59), config.flags() - 1);
+    test.assert_eq(bytes.count_byte(config.limits(), 59), config.flags() - 1);
+    return 0;
+}
+
+pub fn test_indices_name_their_flags() -> [] int {
+    let table = config.flag_table();
+    test.assert(bytes.equal(bytes.field(bytes.field(table, 59, config.i_port() + 1), 124, 1), "port"));
+    test.assert(bytes.equal(bytes.field(bytes.field(table, 59, config.i_connections() + 1), 124, 1), "max-connections"));
+    test.assert(bytes.equal(bytes.field(bytes.field(table, 59, config.i_packet() + 1), 124, 1), "max-packet"));
+    test.assert(bytes.equal(bytes.field(bytes.field(table, 59, config.i_queue_bytes() + 1), 124, 1), "queue-bytes"));
+    test.assert(bytes.equal(bytes.field(bytes.field(table, 59, config.i_queue_messages() + 1), 124, 1), "queue-messages"));
+    test.assert(bytes.equal(bytes.field(bytes.field(table, 59, config.i_inflight() + 1), 124, 1), "inflight"));
+    test.assert(bytes.equal(bytes.field(bytes.field(table, 59, config.i_offline() + 1), 124, 1), "offline-sessions"));
+    test.assert(bytes.equal(bytes.field(bytes.field(table, 59, config.i_subs_client() + 1), 124, 1), "subscriptions-per-client"));
+    test.assert(bytes.equal(bytes.field(bytes.field(table, 59, config.i_subs_total() + 1), 124, 1), "subscriptions-total"));
+    test.assert(bytes.equal(bytes.field(bytes.field(table, 59, config.i_nodes() + 1), 124, 1), "max-nodes"));
+    test.assert(bytes.equal(bytes.field(bytes.field(table, 59, config.i_topic_max() + 1), 124, 1), "topic-max"));
+    test.assert(bytes.equal(bytes.field(bytes.field(table, 59, config.i_levels() + 1), 124, 1), "topic-levels"));
+    test.assert(bytes.equal(bytes.field(bytes.field(table, 59, config.i_retained() + 1), 124, 1), "retained-messages"));
+    test.assert(bytes.equal(bytes.field(bytes.field(table, 59, config.i_retained_slot() + 1), 124, 1), "retained-slot-bytes"));
+    test.assert(bytes.equal(bytes.field(bytes.field(table, 59, config.i_will() + 1), 124, 1), "will-bytes"));
+    test.assert(bytes.equal(bytes.field(bytes.field(table, 59, config.i_client_id() + 1), 124, 1), "client-id-max"));
+    test.assert(bytes.equal(bytes.field(bytes.field(table, 59, config.i_connect_timeout() + 1), 124, 1), "connect-timeout"));
+    test.assert(bytes.equal(bytes.field(bytes.field(table, 59, config.i_write_stall() + 1), 124, 1), "write-stall"));
+    test.assert(bytes.equal(bytes.field(bytes.field(table, 59, config.i_stats() + 1), 124, 1), "stats-seconds"));
+    return 0;
+}

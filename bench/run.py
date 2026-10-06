@@ -64,7 +64,7 @@ def start_broker(name, cores):
 
 
 def stop_broker():
-    sh("docker", "rm", "-f", "broker", check=False)
+    sh("docker", "rm", "-fv", "broker", check=False)
 
 
 def broker_memory_mib():
@@ -85,7 +85,7 @@ def loadgen_collect(*names):
     logs = {}
     for n in names:
         logs[n] = sh("docker", "logs", n, check=False) + sh("docker", "logs", n, check=False)
-        sh("docker", "rm", "-f", n, check=False)
+        sh("docker", "rm", "-fv", n, check=False)
     return logs
 
 

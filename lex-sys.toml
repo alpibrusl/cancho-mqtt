@@ -22,3 +22,8 @@ std = true
 name = "subs"
 sources = ["src/topic.ls", "src/subs.ls", "tests/subs_test.ls"]
 std = true
+
+[[test]]
+name = "config"
+sources = ["src/config.ls", "tests/config_test.ls"]
+std = true

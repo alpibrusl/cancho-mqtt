@@ -679,6 +679,11 @@ pub fn put_pingresp[&o](out: &!o [byte], at: int) -> [] int {
     return at + 2;
 }
 
+// Bytes a SUBACK with `n` return codes takes.
+pub fn suback_size(n: int) -> [] int {
+    return 1 + length_bytes(2 + n) + 2 + n;
+}
+
 // SUBACK with the first `n` return codes of `codes`.
 pub fn put_suback[&o, &c](out: &!o [byte], at: int, pid: int, codes: &c [int], n: int) -> [] int {
     let remaining = 2 + n;
