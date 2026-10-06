@@ -467,9 +467,14 @@ fn handle_connect[&t, &c, &p](tab: &!t conns.Table, core: &!c tables.Core, k: in
         if old >= 0 {
             let oc = sd[tables.s_stride() * old + 1];
             if oc >= 0 {
-                // The same client again: the old connection goes, with no will.
+                // The same client again: the server closes the old connection, which
+                // was not ended by a DISCONNECT, so its will is published (3.1.2-8) --
+                // except when a persistent session is simply continued (the old one
+                // and the new both ask for clean-session 0): the reconnecting client
+                // is not gone, and Mosquitto does not announce it as gone either.
                 tables.bump(core, tables.k_takeovers());
-                close_conn(tab, core, oc, 0 - 1, false, false);
+                let continued = sd[tables.s_stride() * old + 2] == 0 && clean == 0;
+                close_conn(tab, core, oc, 0 - 1, !continued, false);
                 old = tables.find_session(core, id);
             }
         }

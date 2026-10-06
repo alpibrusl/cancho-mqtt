@@ -333,13 +333,27 @@ class Protocol(unittest.TestCase):
         b.send(PINGREQ)
         b.expect(13)
 
-    def test_takeover_does_not_publish_the_old_will(self):
+    def test_takeover_publishes_the_old_will(self):
+        # [MQTT-3.1.2-8]: the server closes the old connection without a DISCONNECT, so
+        # its will is published. (Found by the differential run: Mosquitto does the same.)
         w = self.connected("w")
         w.subscribe("will")
         a = self.client()
         a.connect("same", will=("will", b"x", 0, False))
         b = self.client()
         b.connect("same")
+        self.assertEqual(w.recv_publish(timeout=3)[:2], ("will", b"x"))
+        with self.assertRaises(TimeoutError):
+            w.recv(timeout=0.4)
+
+    def test_takeover_that_continues_a_persistent_session_does_not_publish_the_will(self):
+        # The reconnecting client is not gone; Mosquitto does not announce it as gone.
+        w = self.connected("w")
+        w.subscribe("will")
+        a = self.client()
+        a.connect("same", clean=False, will=("will", b"x", 0, False))
+        b = self.client()
+        self.assertEqual(b.connect("same", clean=False), 1)
         with self.assertRaises(TimeoutError):
             w.recv(timeout=0.6)
 

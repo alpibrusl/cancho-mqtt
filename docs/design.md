@@ -266,9 +266,17 @@ than "at-least-once" as a bare phrase, and the README and the conformance table 
 `clean-session = 1`: all state is dropped at disconnect. `clean-session = 0`: subscriptions and the outbound QoS 1
 queue are kept **in memory only**, up to the offline-session bound; on reconnect with the same client id the session
 resumes (session-present = 1) and queued and unacknowledged messages are sent, with DUP on redelivery. If the table is
-full, the oldest offline session is evicted (`limit.offline-sessions`). Takeover: a CONNECT with an id already connected
-closes the old connection and the old one's will is **not** published (3.1.4-2). The will is published only on an
-abrupt close (keepalive, reset, protocol error), not after DISCONNECT (3.14.4-3).
+full, the oldest offline session is evicted (`limit.offline-sessions`). Takeover: a CONNECT with an id already connected closes the old connection, and because that close is not a DISCONNECT the
+old connection's will **is** published (3.1.2-8) -- unless the takeover continues a persistent session (the old
+connection and the new one both asked for clean-session 0), where the reconnecting client is not gone and no will is
+published. The will is not published after a DISCONNECT (3.14.4-3).
+
+**Corrected by the differential run (issue #10).** This section said a takeover does not publish the old will, citing
+3.1.4-2, which only says the old connection is disconnected. Mosquitto publishes it, 3.1.2-8 says a will is published when the
+connection is closed without a DISCONNECT, and the run showed the disagreement; the broker and its test were changed.
+A second run then showed that Mosquitto does not publish it when a persistent session is taken over by a persistent
+session (a client that reconnects quickly would otherwise be announced as gone while it is back), so this broker does
+not either; the four cases of (old, new) clean-session are in `test_protocol.py`.
 
 Memory competes between offline queues and retained messages only through the shared total in §4; each has its own
 bound so neither can starve the other.
