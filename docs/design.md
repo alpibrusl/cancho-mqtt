@@ -24,7 +24,7 @@ report that can be checked. The model is `lexsys-cache`; the pattern, not the co
 | PINGREQ | in | decode |
 | PINGRESP | out | encode |
 | DISCONNECT | in | decode |
-| PUBREC, PUBREL, PUBCOMP | in | **decode, then refused** (`qos2-packet`, §5) |
+| PUBREC, PUBREL, PUBCOMP | in | **decode, then refused** (`unsupported.qos2-packet`, §5) |
 
 That is the 14 control packets of the specification: 11 are handled, 3 are decoded only to be refused with a tag.
 
@@ -45,7 +45,8 @@ when a derived label, spelled with its argument, is not in `ceiling.toml` (gate 
 | `conn_accept`, `conn_read`, `conn_write` | the connections |
 | `poll` | the `Poller` |
 | `clock` | monotonic time for keepalive and timeouts (`clock_ms`) |
-| `io_write`, `err_write` | the start-up line and fatal start-up errors |
+| `signals("INT,TERM")`, `signals_read` | graceful stop, so the log stream can end with its `end` record (edition 6) |
+| `io_write`, `err_write` | the log stream, the introspect document, process-level errors |
 
 **Corrected by measurement (issue #9):** an earlier draft wrote `net_in("<port>")`. The port is a command-line
 argument, so the compiler cannot know it and derives `net_in("")`, as `examples/api` does. The row says the broker may
@@ -89,26 +90,26 @@ publisher cannot starve the rest. **[measure]** (benchmark cell B3).
 
 All state is allocated at start from the bounds below. After start the broker allocates nothing it did not account for;
 memory growth under churn is a gate (G6). Bounds are command-line arguments with these defaults and the stated hard
-ceilings (a larger value is refused at start with `bound-out-of-range`).
+ceilings (a larger value is refused at start with `args.out-of-range`).
 
 | Bound | Default **[fix]** | Hard ceiling | Rule tag on overflow |
 |---|---:|---:|---|
-| Connections | 1,024 | 16,384 | `connections-full` |
-| Packet size (whole packet incl. header) | 65,536 B | 262,144 B | `packet-too-large` |
+| Connections | 1,024 | 16,384 | `limit.connections` |
+| Packet size (whole packet incl. header) | 65,536 B | 262,144 B | `limit.packet-size` |
 | Input buffer per connection | packet size | | (same) |
-| Output ring per connection | 65,536 B | | `write-stalled` |
-| Client id length | 128 B | | `client-id-rejected` |
-| Topic name length | 1,024 B | 65,535 B | `topic-invalid` |
-| Topic levels | 16 | | `topic-invalid` |
-| Subscriptions per client | 32 | | `subs-per-client` |
-| Subscriptions total | 16,384 | | `subs-total` |
-| Per-subscriber outbound queue | 64 messages and 64 KiB | | `queue-full` |
+| Output ring per connection | 65,536 B | | `timeout.write-stalled` |
+| Client id length | 128 B | | `protocol.client-id-rejected` |
+| Topic name length | 1,024 B | 65,535 B | `protocol.topic-invalid` |
+| Topic levels | 16 | | `protocol.topic-invalid` |
+| Subscriptions per client | 32 | | `limit.subscriptions-per-client` |
+| Subscriptions total | 16,384 | | `limit.subscriptions-total` |
+| Per-subscriber outbound queue | 64 messages and 64 KiB | | `limit.queue` |
 | QoS 1 in-flight window per subscriber | 16 | 64 | (queues behind the window) |
-| Offline sessions kept (clean-session = 0) | 256 | | `session-evicted` |
-| Retained messages | 1,024 | | `retained-full` |
-| Retained bytes | 1 MiB | | `retained-full` |
-| CONNECT deadline | 10 s | | `connect-timeout` |
-| Write-stall deadline | 30 s | | `write-stalled` |
+| Offline sessions kept (clean-session = 0) | 256 | | `limit.offline-sessions` |
+| Retained messages | 1,024 | | `limit.retained` |
+| Retained bytes | 1 MiB | | `limit.retained` |
+| CONNECT deadline | 10 s | | `timeout.connect` |
+| Write-stall deadline | 30 s | | `timeout.write-stalled` |
 
 The memory the broker needs is a function of these numbers: connections x (input + output) + queues + retained
 store + the trie. `scripts/budget.py` (not yet written, issue #6) prints it for a given set of bounds, and the broker prints the same figure at
@@ -126,34 +127,106 @@ unless stated. Spec references are to MQTT 3.1.1 (OASIS, 2014).
 
 | Tag | Trigger | Action | Spec |
 |---|---|---|---|
-| `connect-first` | first packet is not CONNECT | close | 3.1.0-1 |
-| `connect-twice` | second CONNECT | close | 3.1.0-2 |
-| `connect-timeout` | no CONNECT within the deadline | close | |
-| `protocol-name` | name is not `MQTT` | close | 3.1.2-1 |
-| `protocol-level` | level is not 4 | CONNACK 0x01, close | 3.1.2-2 |
-| `client-id-rejected` | empty id with clean-session 0; id over the bound; invalid UTF-8 | CONNACK 0x02, close | 3.1.3-8, 3.1.3-9 |
-| `reserved-flags` | reserved bits set wrongly in any fixed header or CONNECT flags | close | 2.2.2-2, 3.1.2-3 |
-| `remaining-length-malformed` | varint over 4 bytes, or not minimal where the spec requires | close | 2.2.3 |
-| `packet-too-large` | declared length over the bound; the broker closes *before* buffering | close | |
-| `packet-malformed` | length disagrees with content, truncated field, trailing bytes | close | |
-| `topic-invalid` | PUBLISH topic contains a wildcard, NUL, bad UTF-8, or exceeds a bound | close | 3.3.2-2, 4.7.3 |
-| `filter-invalid` | SUBSCRIBE or UNSUBSCRIBE filter breaks the wildcard rules | SUBACK 0x80 for that filter; UNSUBACK ignores it | 4.7.1 |
-| `packet-id-invalid` | packet id 0 where one is required | close | 2.3.1-1 |
-| `qos2-publish` | PUBLISH with QoS 2 | close | |
-| `qos2-packet` | PUBREC, PUBREL or PUBCOMP | close | |
-| `qos3` | PUBLISH QoS bits are 3 | close | 3.3.1-4 |
-| `subs-per-client`, `subs-total` | subscription bound reached | SUBACK 0x80 for that filter | |
-| `connections-full` | accept with the table full | close at accept, no CONNACK | |
-| `keepalive-expired` | no packet for 1.5 x keepalive (0 disables) | close; will is published | 3.1.2-24 |
-| `write-stalled` | output ring full and no progress for the deadline | close; will is published | |
-| `queue-full` | a subscriber's queue is at a bound | the new message is dropped for that subscriber; counted | |
-| `retained-full` | a retained store is at a bound and the topic is new | the message is delivered live, not retained; counted | |
-| `session-evicted` | offline-session table full when a new one would be kept | the oldest offline session is dropped | |
+| `protocol.connect-first` | first packet is not CONNECT | close | 3.1.0-1 |
+| `protocol.connect-twice` | second CONNECT | close | 3.1.0-2 |
+| `timeout.connect` | no CONNECT within the deadline | close | |
+| `protocol.bad-name` | name is not `MQTT` | close | 3.1.2-1 |
+| `protocol.unsupported-level` | level is not 4 | CONNACK 0x01, close | 3.1.2-2 |
+| `protocol.client-id-rejected` | empty id with clean-session 0; id over the bound; invalid UTF-8 | CONNACK 0x02, close | 3.1.3-8, 3.1.3-9 |
+| `protocol.reserved-flags` | reserved bits set wrongly in any fixed header or CONNECT flags | close | 2.2.2-2, 3.1.2-3 |
+| `protocol.remaining-length` | varint over 4 bytes, or not minimal where the spec requires | close | 2.2.3 |
+| `limit.packet-size` | declared length over the bound; the broker closes *before* buffering | close | |
+| `protocol.malformed-packet` | length disagrees with content, truncated field, trailing bytes | close | |
+| `protocol.topic-invalid` | PUBLISH topic contains a wildcard, NUL, bad UTF-8, or exceeds a bound | close | 3.3.2-2, 4.7.3 |
+| `protocol.filter-invalid` | SUBSCRIBE or UNSUBSCRIBE filter breaks the wildcard rules | SUBACK 0x80 for that filter; UNSUBACK ignores it | 4.7.1 |
+| `protocol.packet-id` | packet id 0 where one is required | close | 2.3.1-1 |
+| `unsupported.qos2-publish` | PUBLISH with QoS 2 | close | |
+| `unsupported.qos2-packet` | PUBREC, PUBREL or PUBCOMP | close | |
+| `protocol.qos3` | PUBLISH QoS bits are 3 | close | 3.3.1-4 |
+| `limit.subscriptions-per-client`, `limit.subscriptions-total` | subscription bound reached | SUBACK 0x80 for that filter | |
+| `limit.connections` | accept with the table full | close at accept, no CONNACK | |
+| `timeout.keepalive` | no packet for 1.5 x keepalive (0 disables) | close; will is published | 3.1.2-24 |
+| `timeout.write-stalled` | output ring full and no progress for the deadline | close; will is published | |
+| `limit.queue` | a subscriber's queue is at a bound | the new message is dropped for that subscriber; counted | |
+| `limit.retained` | a retained store is at a bound and the topic is new | the message is delivered live, not retained; counted | |
+| `limit.offline-sessions` | offline-session table full when a new one would be kept | the oldest offline session is dropped | |
 
 SUBSCRIBE at QoS 2 is **granted QoS 1** in SUBACK, which 3.1.1 allows (3.8.4). That is not a refusal; it has no tag.
 
 **No input reaches a panic.** Every arithmetic and index in the codec is bounds-checked and the refusal above is what
 the check produces. Fuzzing is G7.
+
+## 5a. The agent-first surface: CLI, errors, logs
+
+lexsys programs are written for a reader that is a program first. The contract is lex-sys `docs/agent-toolbox.md`
+(D2 to D7, D11), implemented once in the `contract/` package of `lexsys-tools` (`toolbox.cli`, `toolbox.fail`,
+`toolbox.rules`, `toolbox.describe`, `toolbox.out`). The broker **depends on that package, pinned by commit, and does
+not copy it**: `[dependencies.*]` entries in `lex-sys.toml`, each a full `rev`, as `docs/package-system.md` section 8
+prescribes. A broker is a long-running stream tool, not a one-shot document tool, so each rule below says where it
+applies as written and where a server forces a deviation.
+
+**Commands.** One binary, subcommands read by `toolbox.cli`:
+
+| Command | Output | Exit |
+|---|---|---|
+| `mqtt serve [flags]` | NDJSON log stream (below), ends with an `end` record | 0 after a graceful stop |
+| `mqtt introspect [--output json]` | one document: version, compiler pin, every flag with type, default and ceiling, the rule catalogue with exit codes, the exit-code table, the limits, the authority report | 0 |
+| `mqtt skill` | the agentskills.io `SKILL.md`, generated from the same tables | 0 |
+
+`mqtt --authority` (issue #9) is replaced by `mqtt introspect`, which carries the same report in its `authority`
+field. Unknown flags, flags given twice, a value on a boolean flag, a missing value: refused with `args.*`, never
+ignored (`docs/flags.md` section 1).
+
+**One table drives everything.** Every bound in section 4 is a row of the flag table (`name|short|kind|role|default|
+help`, kind `nat`), with its ceiling in the limits table. The parser, `introspect` and `skill` read those two tables;
+there is no second list. The numbers in section 4 are therefore typed once, in those tables, and this document's copy is
+checked against them: a test fails when the table and section 4 disagree. Every flag has role `none`: no flag names a path,
+a root or a write, so no repair that raises a bound can widen authority (D6 rule 1).
+
+**Errors are data.** A refusal of the *process* (bad flags, cannot bind) is the D3 envelope on **stdout**, `{ok:false,
+command, schema, error:{code, rule, message, hint, repair, detail}, errors:[...]}`, stderr empty except `internal.*`.
+Independent argument errors are all reported together, in input order, and the first decides the exit status. Exit
+codes are D4's: 0 success, 1 general (`io.*`, `internal.*`), 2 invalid arguments, 4 permission denied (a port below
+1024), 5 conflict (`conflict.address-in-use`), 6 unused (the broker has a `Clock` but never a deadline of its own to
+report; a supervisor kills), 8 and 9 unused. Exit 132 (a trap) is a bug and gate G7 says none is reachable.
+
+**Rule tags** are `<area>.<name>` and are the section 5 names. Section 5's tags were written before this section and
+are renamed to the catalogue form (`limit.packet-size`, `timeout.keepalive`, `protocol.malformed-packet`,
+`unsupported.qos2-publish`, ...); the table above lists them. Process-level tags (`args.*`, `io.*`, `conflict.*`)
+live in the tool's own `extra_rules` beside the shared catalogue. **Connection-level tags do not decide an exit
+status**, since a refused client is not a failed process, so `toolbox.describe` has no row shape for them (its
+catalogue is `tag|exit|repairable|summary`). That is a gap in the shared package, listed in section 12; until it is
+closed they are published in `introspect` under a second key, `connection_rules`, with `{tag, action, spec,
+counted}`, and a proposed change to `toolbox.describe` goes to `lexsys-tools` rather than a fork here. Every tag has a
+fixture, and a test checks the fixtures equal the catalogue plus `connection_rules`.
+
+**Repairs** exist only where a script can apply one without judgement and never widen authority: `args.unknown-flag`
+(nearest flag from the broker's own table), `args.out-of-range` (retry with the ceiling, never above it). A bound
+already at the ceiling is `repair.kind:"none"` with the reason. `conflict.address-in-use` is `none`: choosing another
+port is the caller's decision, not a script's.
+
+**Logs are the stream.** `mqtt serve` writes one JSON object per line to stdout, in a deterministic key order, and
+**ends with an `end` record** `{"type":"end","ok":...,"complete":...,counts}` on graceful stop (SIGINT or SIGTERM,
+through lex-sys `Signals`, a handle the `Poller` waits on). A stream with no `end` record is truncated (D2): a
+kill flushes nothing. Record types, all bounded:
+
+| `type` | When | Bound |
+|---|---|---|
+| `listening` | once, after bind | 1 |
+| `refusal` | a connection-level rule fired | the first occurrence per rule per second; the rest are counted into `suppressed` on that record, so a flood of bad packets cannot become a flood of log lines |
+| `stats` | every `--stats-seconds` (default 10) | 1 per interval: connections, subscriptions, retained messages and bytes, queue drops, and a counter per rule tag |
+| `error` | a process-level error after start | as `refusal` |
+| `end` | on stop | 1 |
+
+Rules that follow from the contract: **no message payload is ever logged**; client ids and topics are written as
+`text` when valid UTF-8 and as `{"b64":...}` when not, truncated at 64 bytes with `truncated:true` (D2); integers
+only; every write is checked and a failed or short write ends the stream with `io.write-failed` on stderr and exit 1
+(`toolbox.out`). **Deviation from D7:** a record carries `t_ms`, monotonic milliseconds since start, because a
+server's log without time is not a log, and the broker holds the `clock` label by design (section 2). It carries no
+wall-clock time (`clock_unix_ms`), so output is reproducible up to those offsets, and the record order is deterministic.
+**Open risk, with a gate (G9):** a log reader that stops reading blocks `write` on stdout and would stall the single
+poller. Section 12 lists it; it is measured in issue #5, and the broker's behaviour (drop and count, or end the
+stream) is decided from that measurement, not argued here.
 
 ## 6. Backpressure: drop the newest, then disconnect
 
@@ -165,10 +238,10 @@ A slow subscriber must never grow memory without bound and never stall another. 
    subscriber is preserved, and a half-written message is never touched. I believe Mosquitto drops new messages when its queue is full, but that is
    from memory and unchecked; G3 compares behaviour. Cost: the subscriber sees an old message instead of the latest one.
 3. **Disconnect on full.** The clean at-least-once answer for QoS 1, but a burst would disconnect healthy clients.
-   Kept only as the last resort: a connection that makes **no write progress for 30 s** is closed (`write-stalled`).
+   Kept only as the last resort: a connection that makes **no write progress for 30 s** is closed (`timeout.write-stalled`).
 
 The guarantee this gives, stated precisely: **QoS 1 is at-least-once for every message that was accepted into a
-subscriber's queue.** A message dropped by `queue-full` is not delivered and is not retried; the drop is counted and
+subscriber's queue.** A message dropped by `limit.queue` is not delivered and is not retried; the drop is counted and
 visible. A broker restart loses every queue, every offline session and every retained message (§7, §8). This is weaker
 than "at-least-once" as a bare phrase, and the README and the conformance table say so in the same words.
 
@@ -177,7 +250,7 @@ than "at-least-once" as a bare phrase, and the README and the conformance table 
 `clean-session = 1`: all state is dropped at disconnect. `clean-session = 0`: subscriptions and the outbound QoS 1
 queue are kept **in memory only**, up to the offline-session bound; on reconnect with the same client id the session
 resumes (session-present = 1) and queued and unacknowledged messages are sent, with DUP on redelivery. If the table is
-full, the oldest offline session is evicted (`session-evicted`). Takeover: a CONNECT with an id already connected
+full, the oldest offline session is evicted (`limit.offline-sessions`). Takeover: a CONNECT with an id already connected
 closes the old connection and the old one's will is **not** published (3.1.4-2). The will is published only on an
 abrupt close (keepalive, reset, protocol error), not after DISCONNECT (3.14.4-3).
 
@@ -188,7 +261,7 @@ bound so neither can starve the other.
 
 A retained PUBLISH replaces the stored message for its topic; an empty retained payload clears it (3.3.1-6, 3.3.1-10).
 Stored in a fixed table of `retained messages` and `retained bytes` bounds. **When full, refuse (chosen), do not
-evict:** a new retained topic is not stored (`retained-full`) while updates and clears of existing topics always
+evict:** a new retained topic is not stored (`limit.retained`) while updates and clears of existing topics always
 succeed. Reasoning: eviction would silently discard a retained message some other client relies on, and the choice of
 victim (oldest, least used) is a policy with no right answer in v1; refusing is deterministic and visible. On
 SUBSCRIBE, matching retained messages are delivered with RETAIN = 1; a live PUBLISH forwarded to an existing
@@ -196,7 +269,7 @@ subscriber has RETAIN = 0 (3.3.1-9).
 
 ## 9. Topics and the subscription trie
 
-Validation per 4.7. A trie by level in fixed tables (node count bounded by `subs-total` x `levels`, a figure printed
+Validation per 4.7. A trie by level in fixed tables (node count bounded by `limit.subscriptions-total` x `levels`, a figure printed
 at start). `$`-prefixed topics are not matched by a filter starting with `+` or `#` (4.7.2-1). A client with two
 overlapping filters receives a message once per matching filter or once at the highest granted QoS: **the broker
 sends one copy at the highest QoS**, which 3.1.1 permits (3.3.5). Whether Mosquitto does the same is unchecked; the differential harness (G3) compares
@@ -217,6 +290,7 @@ mutant is not a gate.
 | G6 | memory (#8, #11) | RSS after a 10-minute churn run is within the printed budget plus a fixed overhead recorded in the first run | mutant that leaks a session on takeover |
 | G7 | hardening (#11) | a fixed seed set (recorded in the repo) of byte streams split at random points, malformed and oversized lengths, slow and resetting clients, causes no trap; every bound tested at its edge | mutant that removes a bounds check |
 | G8 | style | `lex-sys fmt --check`, no file over 2,000 lines, every rule in §5 has a test naming its tag | a 2,001-line file |
+| G9 | agent surface (section 5a; issue #5) | `introspect` validates against its schema; its flag table equals section 4; every rule tag has a fixture; each process-level error is valid envelope JSON with the exit code the catalogue says; SIGTERM yields an `end` record with `complete:true`; a stalled log reader does not stall clients | a build whose flag default differs from section 4; a catalogue tag with no fixture |
 
 Mutants of each new piece must all be killed or individually explained in the PR that adds the piece.
 
@@ -256,6 +330,8 @@ From `docs/native-sockets.md`, `docs/listen.md`, `docs/tls-nonblocking.md`:
   packet bound is to be tested first in #3; if it does, the packet bound's default is lowered and this section says so.
 - **Gap 6: `std.conns.Table` fields are readable** (`native-sockets.md` §6 correction); no effect here beyond noting
   that tickets are not authority.
+- **Gap 7: `toolbox.describe` has no shape for rules that are not exit statuses** (section 5a). Proposed to `lexsys-tools`; until accepted the broker publishes `connection_rules` itself.
+- **Gap 8: standard output blocks.** A log reader that stops reading would stall the poller (section 5a, gate G9). Not measured yet.
 
 None of these has been verified for this program. The first task of #2 is to build a loop that accepts 1,000 sockets
 and report which of them bite.
