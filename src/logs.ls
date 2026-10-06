@@ -19,6 +19,16 @@ import mqtt.broker;
 import mqtt.rules;
 import mqtt.tables;
 
+// Write a record and push it out: standard output on a pipe is block-buffered, and a
+// supervisor reading the log must see a record when it is written, not when the
+// buffer fills. False if the write or the flush failed.
+fn sent[&h, &i](heap: &!h Heap, io: &!i Io, w: json.Writer) -> [heap, io_write] bool {
+    if !out.close_line(heap, io, w) {
+        return false;
+    }
+    return out.flushed(io);
+}
+
 // `{"type":"listening", ...}`
 pub fn listening[&h, &i](heap: &!h Heap, io: &!i Io, port: int, connections: int, packet: int, memory: int, t_ms: int) -> [heap, io_write] bool {
     var w = json.writer(heap, 256);
@@ -35,7 +45,7 @@ pub fn listening[&h, &i](heap: &!h Heap, io: &!i Io, port: int, connections: int
     w = json.put_int(heap, w, memory);
     w = json.put_key(heap, w, "t_ms");
     w = json.put_int(heap, w, t_ms);
-    return out.close_line(heap, io, w);
+    return sent(heap, io, w);
 }
 
 // One refusal, from the event at the front of `b`'s queue.
@@ -61,7 +71,7 @@ fn refusal[&h, &i, &b](heap: &!h Heap, io: &!i Io, b: &b broker.Broker, suppress
     w = json.put_int(heap, w, broker.event_field(b, 2));
     w = json.put_key(heap, w, "suppressed");
     w = json.put_int(heap, w, suppressed);
-    return out.close_line(heap, io, w);
+    return sent(heap, io, w);
 }
 
 // Write the refusals that happened since the last call: the first of each rule in
@@ -116,7 +126,7 @@ pub fn stats[&h, &i, &b](heap: &!h Heap, io: &!i Io, b: &b broker.Broker, t_ms: 
         r = r + 1;
     }
     w = json.end_object(heap, w);
-    return out.close_line(heap, io, w);
+    return sent(heap, io, w);
 }
 
 // The totals both `stats` and `end` carry.
@@ -144,7 +154,7 @@ pub fn end_served[&h, &i, &b](heap: &!h Heap, io: &!i Io, b: &b broker.Broker, t
     w = json.put_key(heap, w, "t_ms");
     w = json.put_int(heap, w, t_ms);
     w = totals(heap, w, b);
-    return out.close_line(heap, io, w);
+    return sent(heap, io, w);
 }
 
 // `{"type":"rule", ...}` for rule `i`: what `mqtt rules` lists.
@@ -157,5 +167,5 @@ pub fn rule_record[&h, &i](heap: &!h Heap, io: &!i Io, r: int) -> [heap, io_writ
     w = json.put_string(heap, w, rules.tag(r));
     w = json.put_key(heap, w, "action");
     w = json.put_string(heap, w, rules.action(r));
-    return out.close_line(heap, io, w);
+    return sent(heap, io, w);
 }

@@ -248,6 +248,12 @@ fn serve[&h, &g, &k, &l, &w, &i](heap: &!h Heap, cfg: &g [int], clock: &k Clock,
                 }
             }
             var status = 0;
+            // The counters as they stand when it stopped, then the end record.
+            if ok {
+                borrow b as &br in {
+                    ok = logs.stats(heap, io, br, clock_ms(clock) - t0);
+                }
+            }
             if ok {
                 borrow b as &br in {
                     ok = logs.end_served(heap, io, br, clock_ms(clock) - t0);

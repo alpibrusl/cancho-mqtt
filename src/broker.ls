@@ -709,7 +709,8 @@ fn process_input[&t, &c](tab: &!t conns.Table, core: &!c tables.Core, k: int) ->
     while open && used < cd[cp + 1] {
         let view = bf[base + used..base + cd[cp + 1]];
         let total = wire.header(view, core.pmax);
-        if total == wire.incomplete() {
+        if total == wire.incomplete() || total > len(view) {
+            // The rest has not arrived yet.
             open = false;
         } else if total < 0 {
             close_conn(tab, core, k, rules.of_wire(total), true, true);
