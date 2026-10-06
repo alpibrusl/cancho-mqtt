@@ -371,7 +371,8 @@ From `docs/native-sockets.md`, `docs/listen.md`, `docs/tls-nonblocking.md`:
   is false: its gates are G1 to G9 of section 10, in `tests/` and `scripts/` here. To be proposed upstream as a field of
   `describe.Tool` (not yet raised). `mqtt skill` likewise says "`--format text`" and a read-only guarantee in generic words.
 - **Gap 10: saturated QoS 0 fan-out is bimodal run to run** (about 350k or 650k deliveries/s on one core, `docs/benchmark.md`).
-  Cause not found.
+  **Cause found and fixed** (placement of the load generator against one write per delivery; fixed by write coalescing,
+  `docs/benchmark.md`); the cell is now generator-limited.
 
 None of these has been verified for this program. The first task of #2 is to build a loop that accepts 1,000 sockets
 and report which of them bite.

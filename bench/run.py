@@ -180,12 +180,37 @@ def latency_cell(idle):
             "p99_us": pct(0.99), "p999_us": pct(0.999), "max_us": s[-1] / 1000.0}
 
 
+def cgroup_memory_mib(name):
+    """What the kernel charges the container: resident anonymous memory, page cache, and kernel memory
+    (cgroup v1). `docker stats` reports usage, which is the sum of these and more."""
+    cid = sh("docker", "inspect", "--format", "{{.Id}}", name).strip()
+    base = "/sys/fs/cgroup/memory/docker/%s/" % cid
+    out = {}
+    try:
+        stat = dict(l.split() for l in open(base + "memory.stat").read().splitlines())
+        out["rss_mib"] = round(int(stat["rss"]) / 1048576, 1)
+        out["cache_mib"] = round(int(stat["cache"]) / 1048576, 1)
+        out["usage_mib"] = round(int(open(base + "memory.usage_in_bytes").read()) / 1048576, 1)
+        for f, k in (("memory.kmem.usage_in_bytes", "kmem_mib"), ("memory.kmem.tcp.usage_in_bytes", "kmem_tcp_mib")):
+            try:
+                out[k] = round(int(open(base + f).read()) / 1048576, 1)
+            except OSError:
+                pass
+    except OSError:
+        pass
+    return out
+
+
 def memory_cell():
+    detail = {"idle": cgroup_memory_mib("broker")}
     out = {"idle_mib": broker_memory_mib()}
     names = [idle_connections(1000, 0)]
     out["mib_at_1000_connections"] = broker_memory_mib()
+    detail["1000"] = cgroup_memory_mib("broker")
     names.append(idle_connections(4000, 1000))
     out["mib_at_5000_connections"] = broker_memory_mib()
+    detail["5000"] = cgroup_memory_mib("broker")
+    out["cgroup"] = detail
     logs = loadgen_collect(*names)
     out["connected"] = sum(total(l, "connect_succ") for l in logs.values())
     if out["connected"] < 4950:
