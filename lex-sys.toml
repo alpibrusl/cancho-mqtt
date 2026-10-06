@@ -1,0 +1,9 @@
+[package]
+name = "lexsys-mqtt"
+lex-sys = "f7e73075244698e460df333a56f4c15b300190f0"   # the compiler these sources were written for
+
+[[bin]]
+name = "mqtt"
+sources = ["src"]
+std = true
+out = "build/mqtt"

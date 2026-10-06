@@ -5,7 +5,7 @@ authority report. The model is [`lexsys-cache`](https://github.com/alpibrusl/lex
 memory sized at start, a binary protocol parsed with bounds, and measurements against the incumbent (Mosquitto) fixed
 before the code.
 
-**Status: design stage. Nothing is built.** The plan and its tasks are in the epic issue. The first deliverable is
+**Status: design proposed (`docs/design.md`), scaffold only. No broker yet.** The plan and its tasks are in the epic issue. The first deliverable is
 `docs/design.md`: scope, the authority row, the gates, written before any code.
 
 ## Intended scope (v1)

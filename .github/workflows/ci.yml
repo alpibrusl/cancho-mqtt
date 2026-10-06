@@ -1,0 +1,59 @@
+name: ci
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The compiler is whichever commit lex-sys.toml says these sources were
+      # written for: one place, which the compiler itself checks.
+      - name: Read the compiler pin from lex-sys.toml
+        id: pin
+        run: echo "rev=$(sed -n 's/^lex-sys *= *"\([0-9a-f]*\)".*/\1/p' lex-sys.toml)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          repository: alpibrusl/lex-sys
+          ref: ${{ steps.pin.outputs.rev }}
+          path: lex-sys
+
+      - name: Cache the compiler
+        id: compiler
+        uses: actions/cache@v4
+        with:
+          path: lex-sys/target/release/lex-sys
+          key: lex-sys-${{ steps.pin.outputs.rev }}
+
+      - name: Build lex-sys
+        if: steps.compiler.outputs.cache-hit != 'true'
+        working-directory: lex-sys
+        run: cargo build --release -p lex-sys
+
+      - name: Put the compiler on PATH
+        run: echo "$GITHUB_WORKSPACE/lex-sys/target/release" >> "$GITHUB_PATH"
+
+      # The reference implementations and the incumbent the later gates compare
+      # against (docs/design.md sections 10 and 11). Versions are printed so a
+      # run records what it compared with.
+      - name: Install Mosquitto and paho
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q mosquitto mosquitto-clients
+          pip install paho-mqtt
+          mosquitto -h | head -1
+          python3 -c "import paho.mqtt, sys; print('paho-mqtt', paho.mqtt.__version__)"
+
+      - name: Formatting
+        run: lex-sys fmt --check src
+
+      - name: Build
+        run: lex-sys build
+
+      - name: Authority ceiling and file-length limit
+        run: python3 scripts/check.py
