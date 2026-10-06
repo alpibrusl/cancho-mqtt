@@ -1,6 +1,6 @@
 # lexsys-mqtt: design
 
-> **Status: proposed, for the maintainer's review.** Written before any code (issue #1). Every number below is a
+> **Status: accepted by the maintainer (section 13); numbers still to be measured where marked.** Written before any code (issue #1). Every number below is a
 > *choice*, not a measurement; each is marked **[fix]** (decided here, a test pins it) or **[measure]** (a claim that
 > a later task must measure and may have to correct in place). Nothing in this document has been run.
 
@@ -33,24 +33,33 @@ is out; the one-line reason for the authority row is in §2.
 
 ## 2. The authority row
 
-The program the compiler derives for `main` must be within this ceiling and no more (checked by `scripts/check.py`,
-issue #2, tightened in issue #9):
+The program the compiler derives for `main` must be within this ceiling and no more. `scripts/manifest.py` derives
+it, commits it as `manifests/mqtt.authority.json`, embeds it in the binary (`mqtt --authority` prints it), and fails
+when a derived label, spelled with its argument, is not in `ceiling.toml` (gate G4, issue #9).
 
 | Label | Why |
 |---|---|
 | `args` | the port and the bounds on the command line |
 | `heap` | the tables, allocated once at start |
-| `net_in("<port>")` | `tcp_listen` on the one configured port |
+| `net_in("")` | `tcp_listen` on the configured port |
 | `conn_accept`, `conn_read`, `conn_write` | the connections |
 | `poll` | the `Poller` |
 | `clock` | monotonic time for keepalive and timeouts (`clock_ms`) |
 | `io_write`, `err_write` | the start-up line and fatal start-up errors |
 
-Not allowed, each with the reason it would change the product: `file_*` (persistence, logging to disk), `ffi` (TLS,
-anything foreign; makes the report unbounded), `net_out` (bridging), `io_read` (nothing is read from standard input),
-`fs`. A mutant that adds any of them to any module must fail the gate (issue #9). The labels above are written from
-`docs/native-sockets.md`; the first `lex-sys authority` run in issue #2 is what confirms the exact spelling, and this
-table is corrected in place if the compiler says otherwise.
+**Corrected by measurement (issue #9):** an earlier draft wrote `net_in("<port>")`. The port is a command-line
+argument, so the compiler cannot know it and derives `net_in("")`, as `examples/api` does. The row says the broker may
+listen; which port is the perimeter's decision (`net.md` section 2). A broker built for one fixed port would carry
+`net_in("1883")` and could not be tested on a free port, so v1 takes the unnamed row. Also, the ceiling lists
+`conn_read`, `conn_write` and `err_write` before the code that uses them exists: rows are exact, so the derived set may
+be smaller than the ceiling, never larger. The skeleton in `src/main.ls` derives `args`, `clock`, `conn_accept`,
+`heap`, `io_write`, `net_in("")` and `poll`.
+
+Never allowed, whatever `ceiling.toml` says (a list in `scripts/manifest.py`): `ffi` (TLS, anything foreign; makes the
+report unbounded), `net_out` (bridging), `io_read`, and every `fs`, `file` and `dir` label (persistence, logging to
+disk). `scripts/mutants.py` applies four mutations (a file read, a foreign call, a ceiling that lacks a label the
+program uses, an embedded report that is not the compiler's) to a copy of the repository and requires the gate to
+refuse each; all four are refused.
 
 ## 3. Execution model
 
@@ -251,9 +260,10 @@ From `docs/native-sockets.md`, `docs/listen.md`, `docs/tls-nonblocking.md`:
 None of these has been verified for this program. The first task of #2 is to build a loop that accepts 1,000 sockets
 and report which of them bite.
 
-## 13. Open questions for the maintainer
+## 13. Decisions taken
 
-1. Is dropping the newest message the policy you want for a slow subscriber (§6)?
-2. Refuse rather than evict for a full retained store (§8)?
-3. One copy at the highest QoS for overlapping filters (§9)?
-4. Is `emqtt-bench` acceptable as the load generator (§11)?
+The maintainer accepted the recommendations in this document (2026-10-06): drop the newest message for a slow
+subscriber and disconnect after 30 s without write progress (section 6); refuse new retained topics when the store is
+full (section 8); one copy at the highest QoS for overlapping filters, to be compared with Mosquitto by the
+differential harness (section 9); `emqtt-bench` as the load generator, revisited in #12 if it cannot be installed in
+CI (section 11).

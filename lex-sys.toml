@@ -4,6 +4,6 @@ lex-sys = "f7e73075244698e460df333a56f4c15b300190f0"   # the compiler these sour
 
 [[bin]]
 name = "mqtt"
-sources = ["src"]
+sources = ["src", "generated/mqtt"]
 std = true
 out = "build/mqtt"

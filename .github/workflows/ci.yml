@@ -50,10 +50,16 @@ jobs:
           python3 -c "import paho.mqtt, sys; print('paho-mqtt', paho.mqtt.__version__)"
 
       - name: Formatting
-        run: lex-sys fmt --check src
+        run: lex-sys fmt --check src generated
 
       - name: Build
         run: lex-sys build
 
-      - name: Authority ceiling and file-length limit
-        run: python3 scripts/check.py
+      - name: Authority report is the compiler's, embedded, within the ceiling (G4)
+        run: python3 scripts/manifest.py --check
+
+      - name: The authority gate refuses its mutants (G4 can fail)
+        run: python3 scripts/mutants.py
+
+      - name: No file over 2,000 lines (G8)
+        run: python3 scripts/lines.py
