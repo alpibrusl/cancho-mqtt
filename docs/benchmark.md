@@ -85,15 +85,16 @@ Medians, with the range of runs in brackets. Final data: `bench/results.json`.
 
 **Say these.**
 
-- *Saturated QoS 0 fan-out:* lexsys-mqtt delivers about 1.0M/s on one core and Mosquitto about 344k/s. **But lexsys-mqtt's
-  figure is a lower bound**: the broker used 60% to 68% of its core (2 cores: 14% to 17%), so the load generator, not the
+- *Saturated QoS 0 fan-out:* lexsys-mqtt delivers about 1.2M/s on one core and Mosquitto about 344k/s. **But lexsys-mqtt's
+  figure is a lower bound**: the broker used 63% to 66% of its core (2 cores: 15% to 17%), so the load generator, not the
   broker, was the limit (`generator_limited` in the results). The ratio is "at least 3x on this generator", not 3x.
   Mosquitto, NanoMQ, EMQX and VerneMQ ran at 90% to 100% of their cores on one core and are measured at their limits.
-- *Saturated QoS 1 fan-out:* lexsys-mqtt 201k/s against Mosquitto 175k/s on one core (the broker is at 99% CPU, a real limit);
-  with two cores the lexsys-mqtt cells are generator-limited (47% CPU) and Mosquitto's too (36%), so no ordering is claimed.
+- *Saturated QoS 1 fan-out:* lexsys-mqtt 199k/s against Mosquitto 175k/s on one core (the broker is at 87% to 90% CPU, not
+  flagged generator-limited);
+  with two cores the lexsys-mqtt cells are generator-limited (42% to 44% CPU) and Mosquitto's too (36%), so no ordering is claimed.
 - *Latency with one message in flight:* p50 42 microseconds against Mosquitto's 46 and the others' 66 to 161. **The probe is
   Python**, so a few microseconds either way is not evidence; the gap to the Erlang and JVM brokers is.
-- *Memory:* see "Memory" below. Mosquitto is lighter per connection; lexsys-mqtt is between it and NanoMQ at 5,000 connections.
+- *Memory:* see "Memory" below. An idle connection costs lexsys-mqtt about 0.3 KiB of resident size, against Mosquitto's about 1.1 KiB; at 5,000 connections `docker stats` shows 14 MiB against Mosquitto's 38.
 - *Paced fan-out:* every broker delivers all 20,000 messages a second; nothing separates them.
 
 **Do not say these.**
@@ -110,13 +111,20 @@ Medians, with the range of runs in brackets. Final data: `bench/results.json`.
 The table's figures are `docker stats` (cgroup usage). They include page cache and kernel memory and do **not** agree with the
 process's resident size: for Mosquitto 5,000 connections is 38 MiB in `docker stats` and about 1.1 KiB a connection of
 resident size by `smaps`; the cgroup `rss` line is 30.6 MiB. **Not reconciled**; I do not know what the cgroup counts
-that the process does not. Per connection, by process resident size (`/tmp` probe, not in the repo): lexsys-mqtt about 8.3 KiB,
-Mosquitto about 1.1 KiB; idle 5.7 against 7.2 MiB.
+that the process does not. Per connection, by process resident size (`tests/conformance/test_memory.py` asserts it stays under
+2 KiB): lexsys-mqtt about 0.34 KiB, Mosquitto about 1.1 KiB; idle 5.8 against 7.2 MiB.
 
-Why lexsys-mqtt is heavier per connection: each connection has fixed slabs (an input buffer and a session queue) reserved at start.
-The OS commits them lazily by page, but one connection touches one 4 KiB page of each (the CONNECT bytes, the SUBACK in the
-queue), where Mosquitto allocates what it needs on demand. A page-granular pool, or smaller initial slabs, would close most of
-the gap; that is a design choice, not yet made.
+**What changed.** Until this was fixed, lexsys-mqtt took about 8.3 KiB a connection (53 MiB at 5,000 in `docker stats`, against
+Mosquitto's 38), because each connection had a fixed input buffer and a fixed session queue and touched one 4 KiB page of each
+(the CONNECT bytes, the SUBACK). Now one scratch buffer takes every read, and a connection holds an input slot only while a
+packet is split across reads; a session holds a queue buffer only while its queue has entries. Both come from pools whose most
+recently freed slot is reused first, so the pages touched follow what is in flight, not how many connections there are. The
+pools are as large as the old slabs, so the bounds and `memory_bytes` are unchanged. Throughput did not move (QoS 1 one core 199k/s
+before and after; QoS 0 is generator-limited both times).
+
+**What it does not do.** A broker with thousands of connections that all have a queued message, or all a split packet, at the
+same moment touches as many pages as before; and resident size never shrinks, so a burst's pages stay. That is the same
+behaviour as the tables elsewhere in the broker, and the bound is still `memory_bytes`.
 
 ## Caveats
 

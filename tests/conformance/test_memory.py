@@ -79,6 +79,51 @@ class Memory(unittest.TestCase):
             c.send(PINGREQ)
             c.expect(13)
 
+    def test_an_idle_connection_costs_less_than_a_page(self):
+        # A connection's input and queue buffers are attached only while something is in
+        # them, so a connected, subscribed, idle client touches no page of its own. (They
+        # were fixed per-connection slabs, 8.3 KiB each, until this was measured.)
+        with Broker("--max-connections", "4096", "--stats-seconds", "0") as broker:
+            clients = []
+
+            def add(n):
+                while len(clients) < n:
+                    c = broker.client(timeout=10)
+                    c.connect("idle%d" % len(clients), keepalive=300)
+                    c.subscribe([("idle/%d" % len(clients), 0)])
+                    clients.append(c)
+
+            add(200)                              # warm-up: first use of each path
+            time.sleep(0.3)
+            before = rss_kib(broker.proc.pid)
+            add(2200)
+            time.sleep(0.5)
+            per_connection = (rss_kib(broker.proc.pid) - before) / 2000.0
+            self.assertLess(per_connection, 2.0, "%.2f KiB of resident size per idle connection" % per_connection)
+
+    def test_split_packets_on_many_connections_at_once(self):
+        # Each connection holds a spill slot while a packet is split across reads. Interleave
+        # the halves on 300 connections so slots are taken, released and reused.
+        with Broker("--max-connections", "512", "--stats-seconds", "0") as broker:
+            clients = [broker.client() for _ in range(300)]
+            for round_ in range(3):
+                packets = [connect_packet("s%d" % i, clean=True) if round_ == 0 else
+                           publish_packet("sp/%d" % i, b"x" * 700) for i, c in enumerate(clients)]
+                for c, pk in zip(clients, packets):
+                    c.send(pk[:3])
+                time.sleep(0.2)
+                for c, pk in zip(clients, packets):
+                    c.send(pk[3:])
+                if round_ == 0:
+                    for c in clients:
+                        c.expect(2)
+            sub = broker.client()
+            sub.connect("sp-sub")
+            sub.subscribe("sp/#")
+            clients[0].publish("sp/0", b"after")
+            self.assertEqual(sub.recv_publish()[1], b"after")
+            self.assertTrue(broker.alive())
+
     def test_resident_size_never_passes_the_estimate_the_log_states(self):
         # The tables are reserved at start and the operating system commits their pages as
         # they are used, so an idle broker is small and a full one is not larger than the
