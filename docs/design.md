@@ -29,7 +29,7 @@ report that can be checked. The model is `lexsys-cache`; the pattern, not the co
 That is the 14 control packets of the specification: 11 are handled, 3 are decoded only to be refused with a tag.
 
 **Out.** QoS 2, persistence, TLS, authentication, MQTT 5, websockets, `$SYS`, clustering. Issue #13 records why each
-is out; the one-line reason for the authority row is in §2.
+is out, in `docs/later.md`; the one-line reason for the authority row is in §2.
 
 ## 2. The authority row
 
@@ -56,8 +56,9 @@ listen; which port is the perimeter's decision (`net.md` section 2). A broker bu
 be smaller than the ceiling, never larger. The skeleton in `src/main.ls` derives `args`, `clock`, `conn_accept`,
 `heap`, `io_write`, `net_in("")` and `poll`.
 
-Never allowed, whatever `ceiling.toml` says (a list in `scripts/manifest.py`): `ffi` (TLS, anything foreign; makes the
-report unbounded), `net_out` (bridging), `io_read`, and every `fs`, `file` and `dir` label (persistence, logging to
+Never allowed, whatever `ceiling.toml` says (a list in `scripts/manifest.py`): `ffi` (TLS through OpenSSL, anything foreign;
+makes the report unbounded; **corrected, `docs/later.md`:** lex-sys now has a pure TLS 1.3 client with no `ffi`, but it is a client
+only, so a broker still has no TLS that avoids `ffi`), `net_out` (bridging), `io_read`, and every `fs`, `file` and `dir` label (persistence, logging to
 disk). `scripts/mutants.py` applies four mutations (a file read, a foreign call, a ceiling that lacks a label the
 program uses, an embedded report that is not the compiler's) to a copy of the repository and requires the gate to
 refuse each; all four are refused.
