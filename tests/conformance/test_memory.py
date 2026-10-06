@@ -59,7 +59,7 @@ class Memory(unittest.TestCase):
         with Broker("--offline-sessions", "32", "--retained-messages", "64", "--subscriptions-total", "512",
                     "--max-nodes", "512") as broker:
             rng = random.Random(7)
-            churn(broker.port, rng, 300)       # warm up: first use of each path
+            churn(broker.port, rng, 2500)      # warm up: first use of each path, and the allocator's first growth
             time.sleep(0.5)
             before = rss_kib(broker.proc.pid)
             samples = []
@@ -70,6 +70,9 @@ class Memory(unittest.TestCase):
             self.assertTrue(broker.alive())
             self.assertLessEqual(max(samples) - before, MARGIN_KIB,
                                  "resident size grew from %d KiB: %r" % (before, samples))
+            # And it has stopped growing: the last windows are no larger than the first.
+            self.assertLessEqual(max(samples[4:]) - max(samples[:4]), 256,
+                                 "resident size is still growing: %r" % samples)
             # And it did not just stop answering.
             c = broker.client()
             c.connect("after")

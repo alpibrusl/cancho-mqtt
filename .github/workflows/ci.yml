@@ -70,6 +70,9 @@ jobs:
       - name: No file over 2,000 lines (G8)
         run: python3 scripts/lines.py
 
+      - name: The conformance table is generated from the tests
+        run: python3 scripts/coverage.py --check
+
       - name: Conformance (G3, G8, G9), interop and differential against Mosquitto
         run: |
           pip install jsonschema

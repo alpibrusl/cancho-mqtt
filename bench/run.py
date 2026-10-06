@@ -28,7 +28,14 @@ SETTLE_S = 8  # let a broker drain what the previous cell left queued
 NCPU = os.cpu_count()
 LOAD_CPUS = "%d,%d" % (NCPU - 2, NCPU - 1)
 
+ROOT = os.path.dirname(HERE)
+
 BROKERS = {
+    # This broker, from `lex-sys build`, run from the load generator's image (a glibc userland the binary runs
+    # in; Docker Hub was rate limiting a pull of a plain OS image) with the binary mounted in. The
+    # connection bound is raised so the 5,000-connection cells fit; everything else is the default.
+    "mqtt": dict(image="emqx/emqtt-bench:latest", entrypoint="/mqtt", args=["serve", "--port", "1883", "--max-connections", "8192"],
+                 env={}, volumes=[ROOT + "/build/mqtt:/mqtt:ro"]),
     "mosquitto": dict(image="eclipse-mosquitto:2", args=[], env={},
                       volumes=[HERE + "/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro"]),
     "emqx": dict(image="emqx/emqx:5.8.6", args=[], env={}, volumes=[]),
@@ -53,6 +60,8 @@ def start_broker(name, cores):
         cmd += ["-e", "%s=%s" % (k, v)]
     for v in b["volumes"]:
         cmd += ["-v", v]
+    if b.get("entrypoint"):
+        cmd += ["--entrypoint", b["entrypoint"]]
     cmd += [b["image"]] + b["args"]
     sh(*cmd)
     t0 = time.time()
