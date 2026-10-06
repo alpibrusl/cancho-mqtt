@@ -70,6 +70,8 @@ def stop_broker():
 def broker_memory_mib():
     out = sh("docker", "stats", "--no-stream", "--format", "{{.MemUsage}}", "broker").split("/")[0].strip()
     m = re.match(r"([\d.]+)([KMG]i?B)", out)
+    if not m:
+        raise RuntimeError("no memory reading (is the broker still running?): %r" % out)
     v = float(m.group(1))
     return v * {"KiB": 1 / 1024, "MiB": 1, "GiB": 1024, "kB": 1 / 1024, "MB": 1, "GB": 1024}[m.group(2)]
 
@@ -103,10 +105,10 @@ def steady(values, drop_head=3, drop_tail=2):
     return statistics.median(v) if v else 0.0
 
 
-def fanout(qos, subs=100, pubs=4, size=64, seconds=16):
+def fanout(qos, subs=100, pubs=4, size=64, seconds=16, interval_ms=0):
     loadgen("lg-sub", "sub", "-h", HOST, "-V", "4", "-c", str(subs), "-t", "bench/fan", "-q", str(qos), "-R", "1000")
     time.sleep(subs / 1000 + 3)
-    args = ["pub", "-h", HOST, "-V", "4", "-c", str(pubs), "-t", "bench/fan", "-s", str(size), "-I", "0", "-q", str(qos)]
+    args = ["pub", "-h", HOST, "-V", "4", "-c", str(pubs), "-t", "bench/fan", "-s", str(size), "-I", str(interval_ms), "-q", str(qos)]
     if qos:
         args += ["-F", "32"]
     loadgen("lg-pub", *args)
@@ -115,7 +117,8 @@ def fanout(qos, subs=100, pubs=4, size=64, seconds=16):
     recv = steady(series(logs["lg-sub"], "recv"))
     sent = steady(series(logs["lg-pub"], "pub"))
     return {"delivered_per_s": recv, "published_per_s": sent,
-            "delivery_ratio": (recv / (sent * subs)) if sent else 0.0, "subscribers": subs, "publishers": pubs}
+            "delivery_ratio": (recv / ((pubs * 1000.0 / interval_ms) * subs)) if interval_ms else ((recv / (sent * subs)) if sent else 0.0), "subscribers": subs, "publishers": pubs,
+            "offered_msgs_per_s": (pubs * 1000.0 / interval_ms) if interval_ms else None}
 
 
 def idle_connections(n, first=0, rate=1000):
@@ -165,15 +168,35 @@ def image_id(image):
     return sh("docker", "image", "inspect", "--format", "{{.Id}}", image, check=False).strip()
 
 
-def run_broker(name, cores, runs):
-    result = {"image": BROKERS[name]["image"], "image_id": image_id(BROKERS[name]["image"]), "cores": cores}
+CELLS = [
+    # A load every broker should sustain: 4 publishers x 50/s x 100 subscribers = 20,000 deliveries/s.
+    ("fanout_qos0_paced", lambda: fanout(0, interval_ms=20, seconds=14)),
+    ("fanout_qos0", lambda: fanout(0)),
+    ("fanout_qos1", lambda: fanout(1)),
+    ("latency_idle0", lambda: latency_cell(0)),
+    ("latency_idle1000", lambda: latency_cell(1000)),
+]
+
+
+def run_broker(name, cores, runs, only=None, restart=False, previous=None):
+    """Every cell of design section 11 for one broker. `restart` gives every run a freshly started broker
+    (a broker that collapsed under the previous cell must not poison the next); `only` re-runs some cells and
+    keeps the rest of `previous`."""
+    result = dict(previous or {})
+    result.update({"image": BROKERS[name]["image"], "image_id": image_id(BROKERS[name]["image"]), "cores": cores,
+                   "restart_per_run": restart})
+    want = lambda cell: only is None or cell in only
     result["start_s"] = start_broker(name, cores)
     try:
-        for cell, fn in [("fanout_qos0", lambda: fanout(0)), ("fanout_qos1", lambda: fanout(1)),
-                         ("latency_idle0", lambda: latency_cell(0)), ("latency_idle1000", lambda: latency_cell(1000))]:
+        for cell, fn in CELLS:
+            if not want(cell):
+                continue
             result[cell] = []
             for r in range(runs):
                 print("  %s run %d" % (cell, r + 1), flush=True)
+                if restart:
+                    stop_broker()
+                    start_broker(name, cores)
                 time.sleep(SETTLE_S)
                 try:
                     result[cell].append(fn())
@@ -181,18 +204,26 @@ def run_broker(name, cores, runs):
                     result.setdefault("cell_errors", []).append({"cell": cell, "run": r + 1, "error": repr(e)})
                     print("  cell failed: %r" % e, flush=True)
                     loadgen_collect(*[n for n in sh("docker", "ps", "-a", "--format", "{{.Names}}").split() if n.startswith("lg-")])
-        print("  memory", flush=True)
-        time.sleep(SETTLE_S)
-        result["memory"] = memory_cell()
+        if want("memory"):
+            print("  memory", flush=True)
+            if restart:
+                stop_broker()
+                start_broker(name, cores)
+            time.sleep(SETTLE_S)
+            try:
+                result["memory"] = memory_cell()
+            except Exception as e:
+                result.setdefault("cell_errors", []).append({"cell": "memory", "run": 1, "error": repr(e)})
+                loadgen_collect(*[n for n in sh("docker", "ps", "-a", "--format", "{{.Names}}").split() if n.startswith("lg-")])
     finally:
         stop_broker()
-    stop_broker()
-    start_broker(name, cores)
-    try:
-        print("  connect", flush=True)
-        result["connect"] = connect_cell()
-    finally:
-        stop_broker()
+    if want("connect"):
+        start_broker(name, cores)
+        try:
+            print("  connect", flush=True)
+            result["connect"] = connect_cell()
+        finally:
+            stop_broker()
     return result
 
 
@@ -202,6 +233,8 @@ def main():
     ap.add_argument("--cores", type=int, default=1)
     ap.add_argument("--runs", type=int, default=3)
     ap.add_argument("--out", required=True)
+    ap.add_argument("--only", default="", help="comma-separated cells to re-run, keeping the others")
+    ap.add_argument("--restart-per-run", action="store_true")
     a = ap.parse_args()
     results = {}
     if os.path.exists(a.out):
@@ -210,7 +243,8 @@ def main():
         key = "%s/%dcore" % (name, a.cores)
         print(key, flush=True)
         try:
-            results[key] = run_broker(name, a.cores, a.runs)
+            only = set(a.only.split(",")) if a.only else None
+            results[key] = run_broker(name, a.cores, a.runs, only, a.restart_per_run, results.get(key) if only else None)
         except Exception as e:  # recorded, not hidden
             results[key] = {"error": str(e)}
             print("  FAILED: %s" % e, flush=True)
