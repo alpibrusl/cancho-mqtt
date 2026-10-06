@@ -330,7 +330,7 @@ From `docs/native-sockets.md`, `docs/listen.md`, `docs/tls-nonblocking.md`:
   packet bound is to be tested first in #3; if it does, the packet bound's default is lowered and this section says so.
 - **Gap 6: `std.conns.Table` fields are readable** (`native-sockets.md` §6 correction); no effect here beyond noting
   that tickets are not authority.
-- **Gap 7: `toolbox.describe` has no shape for rules that are not exit statuses** (section 5a). Proposed to `lexsys-tools`; until accepted the broker publishes `connection_rules` itself.
+- **Gap 7: `toolbox.describe` has no shape for rules that are not exit statuses** (section 5a). To be proposed to `lexsys-tools` (not yet raised); until accepted the broker publishes `connection_rules` itself.
 - **Gap 8: standard output blocks.** A log reader that stops reading would stall the poller (section 5a, gate G9). Not measured yet.
 
 None of these has been verified for this program. The first task of #2 is to build a loop that accepts 1,000 sockets
