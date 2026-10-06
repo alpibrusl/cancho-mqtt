@@ -366,6 +366,12 @@ From `docs/native-sockets.md`, `docs/listen.md`, `docs/tls-nonblocking.md`:
   that tickets are not authority.
 - **Gap 7: `toolbox.describe` has no shape for rules that are not exit statuses** (section 5a). To be proposed to `lexsys-tools` (not yet raised); until accepted the broker publishes them with `mqtt rules`.
 - **Gap 8: standard output blocks.** A log reader that stops reading would stall the poller (section 5a, gate G9). Not measured yet.
+- **Gap 9: `toolbox.describe` prints the toolbox's evidence list, not this program's.** `mqtt introspect` says its gates
+  are "M1 schema conformance ... M9 memory flatness", "each a test in lexsys-tools/tests/conformance". For this broker that
+  is false: its gates are G1 to G9 of section 10, in `tests/` and `scripts/` here. To be proposed upstream as a field of
+  `describe.Tool` (not yet raised). `mqtt skill` likewise says "`--format text`" and a read-only guarantee in generic words.
+- **Gap 10: saturated QoS 0 fan-out is bimodal run to run** (about 350k or 650k deliveries/s on one core, `docs/benchmark.md`).
+  Cause not found.
 
 None of these has been verified for this program. The first task of #2 is to build a loop that accepts 1,000 sockets
 and report which of them bite.
