@@ -7,3 +7,8 @@ name = "mqtt"
 sources = ["src", "generated/mqtt"]
 std = true
 out = "build/mqtt"
+
+[[test]]
+name = "wire"
+sources = ["src/wire.ls", "tests/wire_test.ls"]
+std = true
