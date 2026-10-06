@@ -95,8 +95,9 @@ pub fn k_takeovers() -> [] int {
     return 38;
 }
 
+// `ctr[64 + rule]` is the second (plus one) in which the rule last left an event.
 pub fn counters() -> [] int {
-    return 64;
+    return 128;
 }
 
 // Events the log has not read yet: a ring of this many; a flood overwrites the
@@ -250,6 +251,15 @@ pub fn counter[&c](core: &c Core, i: int) -> [] int {
 // leave an event for the log, with the start of the client identifier.
 pub fn refuse[&c](core: &!c Core, rule: int, k: int, s: int, extra: int) -> [] int {
     bump(core, rule);
+    // The count is exact; the event is left once a second per rule. A flood of one rule
+    // (a full queue refusing every message to a hundred subscribers) must cost a
+    // counter, not an event each: the log says how many it held back from the counter.
+    let ctr = contents(core.ctr);
+    let second = core.now_ms / 1000 + 1;
+    if ctr[64 + rule] == second {
+        return 0;
+    }
+    ctr[64 + rule] = second;
     let cap = event_capacity();
     if core.ev_count == cap {
         core.ev_head = (core.ev_head + 1) % cap;

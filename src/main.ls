@@ -265,8 +265,10 @@ fn serve[&h, &g, &k, &l, &w, &i](heap: &!h Heap, cfg: &g [int], clock: &k Clock,
             var status = 0;
             // Repeats still held back, the counters as they stand, then the end record.
             if ok {
-                borrow mut limiter as &!lm in {
-                    ok = logs.drain_all(heap, io, text, contents(lm), clock_ms(clock) - t0);
+                borrow b as &br in {
+                    borrow mut limiter as &!lm in {
+                        ok = logs.drain_all(heap, io, text, br, contents(lm), clock_ms(clock) - t0);
+                    }
                 }
             }
             if ok {

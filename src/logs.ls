@@ -128,37 +128,35 @@ fn refusal_record[&h, &i, &d](heap: &!h Heap, io: &!i Io, text_mode: bool, rule:
     return sent(heap, io, w);
 }
 
-// Write the refusals that happened since the last call: the first of each rule in
-// each second, and one record carrying the count of its repeats once that second is
-// over. `limiter` holds two numbers per rule (the second after the one it last
-// wrote in, and how many it has held back since); `now` is in seconds, `t_ms` the
-// time for the records. False if a write fell short.
+// Write the refusals that happened since the last call. The broker leaves one event
+// per rule per second and counts every occurrence exactly, so a record's `suppressed` is
+// the counter's growth since the rule's last record, less the occurrence it describes;
+// occurrences after the last event of a second are written as a summary record (connection
+// -1, no identifier) once that second has passed. `limiter` holds two numbers per rule:
+// the second after the one it last wrote in, and the counter when it last wrote. `now` is
+// in seconds, `t_ms` the time for the records. False if a write fell short.
 pub fn drain[&h, &i, &b, &l](heap: &!h Heap, io: &!i Io, text_mode: bool, b: &!b broker.Broker, limiter: &!l [int], now: int, t_ms: int) -> [heap, io_write] bool {
     var ok = true;
     while ok && broker.events_waiting(b) > 0 {
         let rule = broker.event_field(b, 0);
-        if limiter[2 * rule] == now + 1 {
-            limiter[2 * rule + 1] = limiter[2 * rule + 1] + 1;
-        } else {
-            // A new second: the repeats held from the last one go out first.
-            if limiter[2 * rule + 1] > 0 {
-                ok = refusal_record(heap, io, text_mode, rule, 0 - 1, "", false, 0, t_ms, limiter[2 * rule + 1]);
-            }
-            limiter[2 * rule] = now + 1;
-            limiter[2 * rule + 1] = 0;
-            if ok {
-                ok = refusal_record(heap, io, text_mode, rule, broker.event_field(b, 1), broker.event_id(b), broker.event_field(b, 3) >= 0, broker.event_field(b, 4), broker.event_field(b, 2), 0);
-            }
+        let seen = broker.counter(b, rule);
+        var held = seen - limiter[2 * rule + 1] - 1;
+        if held < 0 {
+            held = 0;
         }
+        ok = refusal_record(heap, io, text_mode, rule, broker.event_field(b, 1), broker.event_id(b), broker.event_field(b, 3) >= 0, broker.event_field(b, 4), broker.event_field(b, 2), held);
+        limiter[2 * rule] = now + 1;
+        limiter[2 * rule + 1] = seen;
         broker.event_pop(b);
     }
-    // Repeats held from a second that has passed are reported without waiting for
-    // another event of that rule.
+    // Repeats after the last event of a second that has passed are reported without
+    // waiting for another event of that rule.
     var r = 0;
     while ok && r < rules.count() {
-        if limiter[2 * r + 1] > 0 && limiter[2 * r] <= now {
-            ok = refusal_record(heap, io, text_mode, r, 0 - 1, "", false, 0, t_ms, limiter[2 * r + 1]);
-            limiter[2 * r + 1] = 0;
+        let seen = broker.counter(b, r);
+        if seen > limiter[2 * r + 1] && limiter[2 * r] <= now {
+            ok = refusal_record(heap, io, text_mode, r, 0 - 1, "", false, 0, t_ms, seen - limiter[2 * r + 1]);
+            limiter[2 * r + 1] = seen;
         }
         r = r + 1;
     }
@@ -166,13 +164,14 @@ pub fn drain[&h, &i, &b, &l](heap: &!h Heap, io: &!i Io, text_mode: bool, b: &!b
 }
 
 // Write every held count, whatever second it is: the stream is ending.
-pub fn drain_all[&h, &i, &l](heap: &!h Heap, io: &!i Io, text_mode: bool, limiter: &!l [int], t_ms: int) -> [heap, io_write] bool {
+pub fn drain_all[&h, &i, &b, &l](heap: &!h Heap, io: &!i Io, text_mode: bool, b: &b broker.Broker, limiter: &!l [int], t_ms: int) -> [heap, io_write] bool {
     var ok = true;
     var r = 0;
     while ok && r < rules.count() {
-        if limiter[2 * r + 1] > 0 {
-            ok = refusal_record(heap, io, text_mode, r, 0 - 1, "", false, 0, t_ms, limiter[2 * r + 1]);
-            limiter[2 * r + 1] = 0;
+        let seen = broker.counter(b, r);
+        if seen > limiter[2 * r + 1] {
+            ok = refusal_record(heap, io, text_mode, r, 0 - 1, "", false, 0, t_ms, seen - limiter[2 * r + 1]);
+            limiter[2 * r + 1] = seen;
         }
         r = r + 1;
     }
