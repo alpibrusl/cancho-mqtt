@@ -12,3 +12,13 @@ out = "build/mqtt"
 name = "wire"
 sources = ["src/wire.ls", "tests/wire_test.ls"]
 std = true
+
+[[test]]
+name = "topic"
+sources = ["src/topic.ls", "tests/topic_test.ls"]
+std = true
+
+[[test]]
+name = "subs"
+sources = ["src/topic.ls", "src/subs.ls", "tests/subs_test.ls"]
+std = true
