@@ -306,6 +306,7 @@ fn flush[&t, &c](tab: &!t conns.Table, core: &!c tables.Core, k: int) -> [conn_w
         return 0;
     }
     let p = tables.s_stride() * s;
+    let stage = contents(core.stage);
     var blocked = false;
     var failed = false;
     var going = true;
@@ -313,32 +314,72 @@ fn flush[&t, &c](tab: &!t conns.Table, core: &!c tables.Core, k: int) -> [conn_w
         if sd[p + 8] >= sd[p + 7] {
             going = false;
         } else {
-            let at = sd[p + 8];
+            // Copy what can go now -- as many queued messages as fit the staging buffer and
+            // the in-flight window allow -- back to back, so that one write sends all of them.
             let q = tables.queue_view(core, s);
-            let size = int_of(q[at]) << 24 | int_of(q[at + 1]) << 16 | int_of(q[at + 2]) << 8 | int_of(q[at + 3]);
-            let kind = int_of(q[at + 5]);
-            if kind == 1 && sd[p + 11] >= core.window {
+            var at = sd[p + 8];
+            var staged = 0;
+            var inflight = sd[p + 11];
+            var skip = sd[p + 9];
+            var more = true;
+            while more && at < sd[p + 7] {
+                let size = int_of(q[at]) << 24 | int_of(q[at + 1]) << 16 | int_of(q[at + 2]) << 8 | int_of(q[at + 3]);
+                let kind = int_of(q[at + 5]);
+                if kind == 1 && skip == 0 && inflight >= core.window {
+                    more = false;
+                } else {
+                    var room = len(stage) - staged;
+                    var take = size - skip;
+                    if take > room {
+                        take = room;
+                    }
+                    copy_into(stage[staged..staged + take], q[at + 8 + skip..at + 8 + skip + take]);
+                    staged = staged + take;
+                    if take < size - skip {
+                        // The buffer is full in the middle of this message.
+                        more = false;
+                    } else {
+                        if kind == 1 {
+                            inflight = inflight + 1;
+                        }
+                        at = at + 8 + size;
+                        skip = 0;
+                    }
+                }
+            }
+            if staged == 0 {
                 going = false;
             } else {
-                let from = at + 8 + sd[p + 9];
-                match conns.write(tab, k, q[from..at + 8 + size]) {
+                match conns.write(tab, k, stage[0..staged]) {
                     Sent::Wrote(n) => {
                         cd[cp + 9] = 0;
-                        sd[p + 9] = sd[p + 9] + n;
-                        if sd[p + 9] >= size {
-                            let qm = tables.queue(core, s);
-                            if kind == 1 {
-                                qm[at + 4] = byte_of(1);
-                                sd[p + 11] = sd[p + 11] + 1;
-                            } else {
-                                qm[at + 4] = byte_of(2);
-                                if kind == 0 {
-                                    sd[p + 10] = sd[p + 10] - 1;
+                        // Attribute the bytes the kernel took to the messages they finish.
+                        let qm = tables.queue(core, s);
+                        var left = n;
+                        while left > 0 {
+                            let e = sd[p + 8];
+                            let size = int_of(qm[e]) << 24 | int_of(qm[e + 1]) << 16 | int_of(qm[e + 2]) << 8 | int_of(qm[e + 3]);
+                            let kind = int_of(qm[e + 5]);
+                            if left >= size - sd[p + 9] {
+                                left = left - (size - sd[p + 9]);
+                                if kind == 1 {
+                                    qm[e + 4] = byte_of(1);
+                                    sd[p + 11] = sd[p + 11] + 1;
+                                } else {
+                                    qm[e + 4] = byte_of(2);
+                                    if kind == 0 {
+                                        sd[p + 10] = sd[p + 10] - 1;
+                                    }
                                 }
+                                sd[p + 8] = e + 8 + size;
+                                sd[p + 9] = 0;
+                            } else {
+                                sd[p + 9] = sd[p + 9] + left;
+                                left = 0;
                             }
-                            sd[p + 8] = at + 8 + size;
-                            sd[p + 9] = 0;
-                        } else {
+                        }
+                        if n < staged {
+                            // The kernel took part of it: wait until it has room.
                             blocked = true;
                             going = false;
                         }

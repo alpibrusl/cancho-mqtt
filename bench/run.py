@@ -85,8 +85,8 @@ def broker_memory_mib():
     return v * {"KiB": 1 / 1024, "MiB": 1, "GiB": 1024, "kB": 1 / 1024, "MB": 1, "GB": 1024}[m.group(2)]
 
 
-def loadgen(name, *args):
-    sh("docker", "run", "-d", "--name", name, "--network", "host", "--cpuset-cpus", LOAD_CPUS,
+def loadgen(name, *args, cpus=None):
+    sh("docker", "run", "-d", "--name", name, "--network", "host", "--cpuset-cpus", cpus or LOAD_CPUS,
        "--ulimit", "nofile=20000:20000", LOADGEN, *args)
 
 
@@ -114,20 +114,49 @@ def steady(values, drop_head=3, drop_tail=2):
     return statistics.median(v) if v else 0.0
 
 
-def fanout(qos, subs=100, pubs=4, size=64, seconds=16, interval_ms=0):
-    loadgen("lg-sub", "sub", "-h", HOST, "-V", "4", "-c", str(subs), "-t", "bench/fan", "-q", str(qos), "-R", "1000")
-    time.sleep(subs / 1000 + 3)
+def container_cpu_ns(name):
+    """CPU time the container has used, from its cgroup (v1, cpuacct)."""
+    cid = sh("docker", "inspect", "--format", "{{.Id}}", name).strip()
+    for path in ("/sys/fs/cgroup/cpuacct/docker/%s/cpuacct.usage", "/sys/fs/cgroup/cpu/docker/%s/cpuacct.usage"):
+        try:
+            return int(open(path % cid).read())
+        except OSError:
+            continue
+    return None
+
+
+def fanout(qos, cores=1, subs=100, pubs=4, size=64, seconds=16, interval_ms=0, sub_procs=4):
+    """Fan-out through a broker pinned to `cores` cores. Placement is controlled, because where the load
+    generator's threads land decides how expensive each delivered message is (docs/benchmark.md): the
+    subscribers are `sub_procs` separate processes spread over cores 2 and 3, so they sleep on their sockets
+    as real subscribers do, and the publishers have a core of their own (core 1) when the broker has one,
+    cores 2 and 3 when it has two. The broker's own CPU use is recorded: below about 85% the generator, not
+    the broker, was the limit, and the figure is a lower bound."""
+    per = subs // sub_procs
+    names = []
+    for i in range(sub_procs):
+        n = "lg-sub%d" % i
+        loadgen(n, "sub", "-h", HOST, "-V", "4", "-c", str(per), "-n", str(i * per), "-t", "bench/fan", "-q", str(qos),
+                "-R", "1000", cpus=["2", "3"][i % 2])
+        names.append(n)
+    time.sleep(per / 1000 + 3)
     args = ["pub", "-h", HOST, "-V", "4", "-c", str(pubs), "-t", "bench/fan", "-s", str(size), "-I", str(interval_ms), "-q", str(qos)]
     if qos:
         args += ["-F", "32"]
-    loadgen("lg-pub", *args)
-    time.sleep(seconds)
-    logs = loadgen_collect("lg-sub", "lg-pub")
-    recv = steady(series(logs["lg-sub"], "recv"))
+    loadgen("lg-pub", *args, cpus="1" if cores == 1 else "2,3")
+    time.sleep(2)
+    c0, t0 = container_cpu_ns("broker"), time.time()
+    time.sleep(seconds - 2)
+    c1, t1 = container_cpu_ns("broker"), time.time()
+    logs = loadgen_collect(*names, "lg-pub")
+    recv = sum(steady(series(logs[n], "recv")) for n in names)
     sent = steady(series(logs["lg-pub"], "pub"))
+    cpu = round(100.0 * (c1 - c0) / 1e9 / (t1 - t0) / cores) if c0 is not None and c1 is not None else None
     return {"delivered_per_s": recv, "published_per_s": sent,
-            "delivery_ratio": (recv / ((pubs * 1000.0 / interval_ms) * subs)) if interval_ms else ((recv / (sent * subs)) if sent else 0.0), "subscribers": subs, "publishers": pubs,
-            "offered_msgs_per_s": (pubs * 1000.0 / interval_ms) if interval_ms else None}
+            "delivery_ratio": (recv / ((pubs * 1000.0 / interval_ms) * subs)) if interval_ms else ((recv / (sent * subs)) if sent else 0.0),
+            "subscribers": subs, "publishers": pubs, "sub_processes": sub_procs,
+            "offered_msgs_per_s": (pubs * 1000.0 / interval_ms) if interval_ms else None,
+            "broker_cpu_pct_of_its_cores": cpu, "generator_limited": (cpu is not None and cpu < 85)}
 
 
 def idle_connections(n, first=0, rate=1000):
@@ -179,11 +208,11 @@ def image_id(image):
 
 CELLS = [
     # A load every broker should sustain: 4 publishers x 50/s x 100 subscribers = 20,000 deliveries/s.
-    ("fanout_qos0_paced", lambda: fanout(0, interval_ms=20, seconds=14)),
-    ("fanout_qos0", lambda: fanout(0)),
-    ("fanout_qos1", lambda: fanout(1)),
-    ("latency_idle0", lambda: latency_cell(0)),
-    ("latency_idle1000", lambda: latency_cell(1000)),
+    ("fanout_qos0_paced", lambda cores: fanout(0, cores, interval_ms=20, seconds=14)),
+    ("fanout_qos0", lambda cores: fanout(0, cores)),
+    ("fanout_qos1", lambda cores: fanout(1, cores)),
+    ("latency_idle0", lambda cores: latency_cell(0)),
+    ("latency_idle1000", lambda cores: latency_cell(1000)),
 ]
 
 
@@ -208,7 +237,7 @@ def run_broker(name, cores, runs, only=None, restart=False, previous=None):
                     start_broker(name, cores)
                 time.sleep(SETTLE_S)
                 try:
-                    result[cell].append(fn())
+                    result[cell].append(fn(cores))
                 except Exception as e:  # one cell failing does not hide the others
                     result.setdefault("cell_errors", []).append({"cell": cell, "run": r + 1, "error": repr(e)})
                     print("  cell failed: %r" % e, flush=True)

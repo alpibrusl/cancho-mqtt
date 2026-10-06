@@ -300,6 +300,7 @@
     "size",
     "size$int",
     "slots",
+    "stage_bytes",
     "start",
     "starts_with",
     "stop_signals",
@@ -337,5 +338,5 @@
   ],
   "folded_operators": 118,
   "folded_calls": 0,
-  "functions": 433
+  "functions": 434
 }
