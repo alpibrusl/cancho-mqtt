@@ -44,7 +44,7 @@ jobs:
       - name: Install Mosquitto and paho
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y -q mosquitto mosquitto-clients
+          sudo apt-get install -y -q mosquitto mosquitto-clients jq
           pip install paho-mqtt jsonschema
           mosquitto -h | head -1
           python3 -c "import paho.mqtt, sys; print('paho-mqtt', paho.mqtt.__version__)"
@@ -57,6 +57,9 @@ jobs:
 
       - name: Unit tests
         run: cancho test
+
+      - name: The README's and the page's examples are the program's output
+        run: python3 scripts/site.py --check
 
       - name: The schema is generated, not edited
         run: python3 scripts/schemas.py --check
