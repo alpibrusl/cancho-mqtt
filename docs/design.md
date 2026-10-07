@@ -350,8 +350,8 @@ written down for SUBSCRIBE at QoS 2 (we granted 1) go away; overlapping filters 
 only for sessions that use QoS 2 (its slots are 128 bytes, so 32 sessions to a page). Nothing else grows: the queue kinds are
 a byte in the entry header that already existed.
 
-**Not done.** The expected cost of method A against B is not measured. QoS 2 throughput is reported in `docs/benchmark.md`
-only if the benchmark cell is run for it; it was not run for v1 (the cells there are QoS 0 and 1).
+**Not done.** The cost of method A against method B is not measured (the broker has only A). QoS 2 fan-out throughput is in
+`docs/benchmark.md` (added with this section); it was not run for v1, whose cells were QoS 0 and 1.
 
 ## 8. Retained messages
 

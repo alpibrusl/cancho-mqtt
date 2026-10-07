@@ -31,8 +31,8 @@ per-type flag checks, two queue kinds (QoS 2 message and PUBREL), a received-ide
 270 added lines of source, 20 black-box tests in `test_qos2.py` plus a rule fixture, two interop tests (paho and the Mosquitto clients) and
 five differential scenarios (340 generated scenarios agree with Mosquitto, after a harness fix described in the PR). **Not what the estimate said:** the
 inbound side is method A (routed on PUBLISH), where Mosquitto is method B (routed on PUBREL); the one difference is written down
-and asserted (`KNOWN_DIFFERENCES`), and the SUBSCRIBE-at-QoS-2 difference is gone. **Not measured when this was written:** QoS 2
-throughput; `docs/benchmark.md` has the cell if it has been run.
+and asserted (`KNOWN_DIFFERENCES`), and the SUBSCRIBE-at-QoS-2 difference is gone. **Measured:** the QoS 2 fan-out cell is in
+`docs/benchmark.md`, with the caveat that lexsys-mqtt drops the newest message under overload and so delivers about 13% of what is offered.
 
 ## Persistence
 

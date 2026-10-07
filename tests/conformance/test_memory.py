@@ -21,6 +21,51 @@ def rss_kib(pid):
         return int(re.search(r"VmRSS:\s+(\d+) kB", f.read()).group(1))
 
 
+def thp():
+    try:
+        with open("/sys/kernel/mm/transparent_hugepage/enabled") as f:
+            return f.read().strip()
+    except OSError:
+        return "unknown"
+
+
+def largest_mappings(pid, n=4):
+    """The n mappings with the most resident memory, for the failure message."""
+    rows, cur = [], None
+    with open("/proc/%d/smaps" % pid) as f:
+        for line in f:
+            m = re.match(r"^([0-9a-f]+)-([0-9a-f]+) \S+ \S+ \S+ \S+\s*(.*)$", line)
+            if m:
+                cur = [0, 0, int(m.group(2), 16) - int(m.group(1), 16), m.group(3) or "anon"]
+                rows.append(cur)
+            elif cur is not None and line.startswith("Rss:"):
+                cur[0] = int(line.split()[1])
+            elif cur is not None and line.startswith("AnonHugePages:"):
+                cur[1] = int(line.split()[1])
+    rows.sort(key=lambda r: -r[0])
+    return ["rss %d KiB (huge %d KiB) of %d KiB: %s" % (r[0], r[1], r[2] // 1024, r[3]) for r in rows[:n]]
+
+
+def burst(port, n=400):
+    """Open `n` connections at once, subscribe, publish to all of them, close: the peak
+    that later sequential churn cannot exceed, so the warm-up reaches the high-water mark
+    of every pool (buffers are attached while in use, so memory follows the peak)."""
+    clients = []
+    try:
+        for i in range(n):
+            c = Client(port, timeout=10)
+            c.connect("burst%d" % i, clean=bool(i % 2))
+            c.subscribe([("burst/#", 1 + i % 2)])
+            clients.append(c)
+        for i in range(20):
+            clients[0].publish("burst/x", b"b" * 200, qos=1)
+        time.sleep(0.5)
+    finally:
+        for c in clients:
+            c.close()
+    time.sleep(0.5)
+
+
 def churn(port, rng, rounds):
     for i in range(rounds):
         kind = rng.randrange(9)
@@ -78,7 +123,8 @@ class Memory(unittest.TestCase):
                 samples.append(rss_kib(broker.proc.pid))
             self.assertTrue(broker.alive())
             self.assertLessEqual(max(samples) - before, MARGIN_KIB,
-                                 "resident size grew from %d KiB: %r" % (before, samples))
+                                 "resident size grew from %d KiB: %r (transparent huge pages: %s)\n%s"
+                                 % (before, samples, thp(), "\n".join(largest_mappings(broker.proc.pid))))
             # And it has stopped growing: the last windows are no larger than the first.
             self.assertLessEqual(max(samples[4:]) - max(samples[:4]), 256,
                                  "resident size is still growing: %r" % samples)
