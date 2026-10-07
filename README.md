@@ -16,7 +16,7 @@ build/mqtt rules                              # every connection-level rule and 
 **Implemented:** CONNECT/CONNACK (MQTT 3.1.1, and 3.1 clients that send `MQIsdp`), keep-alive, clean and persistent sessions, will messages, SUBSCRIBE with `+` and `#`,
 PUBLISH at QoS 0, 1 and 2 (in-flight window, DUP redelivery; QoS 2 delivers an inbound message when its PUBLISH arrives, not
 when its PUBREL does, which 3.1.1 allows and Mosquitto does the other way: [design section 7a](docs/design.md)), retained
-messages, bounded per-session queues, every bound a flag with a stated ceiling. **Not implemented:** persistence across
+messages, `$SYS` statistics under Mosquitto's topic names (17 of them, not the `load`, `heap` or `store` ones), bounded per-session queues, every bound a flag with a stated ceiling. **Not implemented:** persistence across
 restarts, TLS, authentication, MQTT 5, websockets, `$SYS`, clustering; [docs/later.md](docs/later.md) says why each is out
 and what taking it up would cost.
 

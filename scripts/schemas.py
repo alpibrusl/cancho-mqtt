@@ -33,7 +33,7 @@ RULES = [
     "limit.subscriptions-per-client", "limit.subscriptions-total", "limit.connections",
     "timeout.keepalive", "timeout.write-stalled", "limit.queue", "limit.retained",
     "limit.offline-sessions", "protocol.unexpected-packet", "limit.topic-level",
-    "limit.will-size", "limit.output-full", "limit.qos2-inbound",
+    "limit.will-size", "limit.output-full", "limit.qos2-inbound", "protocol.reserved-topic",
 ]
 
 

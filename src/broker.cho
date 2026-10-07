@@ -14,6 +14,7 @@ module mqtt.broker;
 import std.conns;
 import mqtt.config;
 import mqtt.rules;
+import mqtt.sys;
 import mqtt.subs;
 import mqtt.tables;
 import mqtt.topic;
@@ -112,6 +113,7 @@ fn enqueue_publish[&c, &t, &p](core: &!c tables.Core, s: int, qos: int, name: &t
     wire.put_publish(tables.queue(core, s), at, name, payload, qos, retain, 0, pid);
     tables.q_commit(core, s, at, size, qos, pid);
     tables.bump(core, tables.k_delivered());
+    tables.add(core, tables.k_pub_out_bytes(), len(payload));
     let k = contents(core.ss)[tables.s_stride() * s + 1];
     if k >= 0 {
         mark_dirty(core, k);
@@ -234,6 +236,50 @@ fn deliver_retained[&c, &f](core: &!c tables.Core, s: int, filter: &f [byte], gr
             }
         }
         i = i + 1;
+    }
+    return 0;
+}
+
+// The `$SYS` topics that match `filter`, queued for session `s` with the retain flag set, as a
+// retained message would be, at the lower of QoS 1 and `granted` (design section 7b).
+fn deliver_sys[&c, &f](core: &!c tables.Core, s: int, filter: &f [byte], granted: int) -> [] int {
+    if core.sys_every == 0 {
+        return 0;
+    }
+    region a {
+        let b = alloc_slice[a](64, byte_of(0));
+        var i = 0;
+        while i < sys.count() {
+            if topic.matches(filter, sys.name(i)) {
+                let n = sys.value(core, i, b);
+                enqueue_publish(core, s, lower(1, granted), sys.name(i), b[0..n], 1);
+            }
+            i = i + 1;
+        }
+    }
+    return 0;
+}
+
+// Every `sys-interval` seconds: each `$SYS` topic to the connected sessions subscribed to it,
+// retain flag clear. Offline persistent sessions are not sent these: a statistic that is stale
+// on arrival would only fill their queue.
+fn publish_sys[&c](core: &!c tables.Core) -> [] int {
+    region a {
+        let b = alloc_slice[a](64, byte_of(0));
+        var i = 0;
+        while i < sys.count() {
+            let n = sys.value(core, i, b);
+            let m = subs.find_matches(core.trie, sys.name(i));
+            var j = 0;
+            while j < m {
+                let s = subs.matched_session(core.trie, j);
+                if contents(core.ss)[tables.s_stride() * s + 1] >= 0 {
+                    enqueue_publish(core, s, lower(1, subs.matched_qos(core.trie, j)), sys.name(i), b[0..n], 0);
+                }
+                j = j + 1;
+            }
+            i = i + 1;
+        }
     }
     return 0;
 }
@@ -383,6 +429,7 @@ fn flush[&t, &c](tab: &!t conns.Table, core: &!c tables.Core, k: int) -> [conn_w
                 match conns.write(tab, k, stage[0..staged]) {
                     Sent::Wrote(n) => {
                         cd[cp + 9] = 0;
+                        tables.add(core, tables.k_bytes_out(), n);
                         // Attribute the bytes the kernel took to the messages they finish.
                         let qm = tables.queue(core, s);
                         var left = n;
@@ -401,6 +448,7 @@ fn flush[&t, &c](tab: &!t conns.Table, core: &!c tables.Core, k: int) -> [conn_w
                                         sd[p + 10] = sd[p + 10] - 1;
                                     }
                                 }
+                                tables.bump(core, tables.k_pkts_out());
                                 sd[p + 8] = e + 8 + size;
                                 sd[p + 9] = 0;
                             } else {
@@ -491,6 +539,8 @@ fn refuse_connect[&t, &c](tab: &!t conns.Table, core: &!c tables.Core, k: int, r
         let b = alloc_slice[a](4, byte_of(0));
         let n = wire.put_connack(b, 0, 0, code);
         send_direct(tab, k, b[0..n]);
+        tables.add(core, tables.k_bytes_out(), n);
+        tables.bump(core, tables.k_pkts_out());
     }
     close_conn(tab, core, k, rule, false, true);
     return 1;
@@ -580,6 +630,9 @@ fn handle_connect[&t, &c, &p](tab: &!t conns.Table, core: &!c tables.Core, k: in
     cd[cp + 3] = s;
     cd[cp + 4] = ct[2];
     core.online = core.online + 1;
+    if core.online + core.offline > tables.counter(core, tables.k_clients_max()) {
+        contents(core.ctr)[tables.k_clients_max()] = core.online + core.offline;
+    }
     if will == 1 {
         let w = contents(core.wbuf);
         let base = s * core.will_max;
@@ -606,6 +659,8 @@ fn handle_connect[&t, &c, &p](tab: &!t conns.Table, core: &!c tables.Core, k: in
             close_conn(tab, core, k, 0 - 1, true, true);
             return 1;
         }
+        tables.add(core, tables.k_bytes_out(), n);
+        tables.bump(core, tables.k_pkts_out());
     }
     tables.bump(core, tables.k_connects());
     if present == 1 {
@@ -630,10 +685,18 @@ fn handle_publish[&t, &c, &p](tab: &!t conns.Table, core: &!c tables.Core, k: in
     }
     let pid = pt[2];
     let retain = pt[6];
+    tables.bump(core, tables.k_pub_in());
+    tables.add(core, tables.k_pub_in_bytes(), pt[4]);
+    // A client may not publish under `$SYS/` (design section 7b): the message is acknowledged
+    // as usual and goes nowhere, and the refusal is counted.
+    let reserved = sys.reserved(name);
+    if reserved {
+        tables.refuse(core, rules.reserved_topic(), k, s, 0);
+    }
     if qos == 2 {
         // Method A (design section 7a): route at once, and remember the identifier until
         // PUBREL so that a resend is acknowledged again but not routed again.
-        if !tables.q2_has(core, s, pid) {
+        if !reserved && !tables.q2_has(core, s, pid) {
             if !tables.q2_add(core, s, pid) {
                 close_conn(tab, core, k, rules.qos2_inbound(), true, true);
                 return 1;
@@ -646,7 +709,9 @@ fn handle_publish[&t, &c, &p](tab: &!t conns.Table, core: &!c tables.Core, k: in
         }
         return 0;
     }
-    route(core, name, pkt[pt[3]..pt[3] + pt[4]], qos, retain);
+    if !reserved {
+        route(core, name, pkt[pt[3]..pt[3] + pt[4]], qos, retain);
+    }
     if qos == 1 {
         if !enqueue_control(core, s, ctl_puback(), pid) {
             close_conn(tab, core, k, rules.output_full(), true, true);
@@ -700,6 +765,7 @@ fn handle_subscribe[&t, &c, &p](tab: &!t conns.Table, core: &!c tables.Core, k: 
     while i < n {
         if codes[i] < 128 {
             deliver_retained(core, s, pkt[ft[2 + 3 * i]..ft[2 + 3 * i] + ft[3 + 3 * i]], codes[i]);
+            deliver_sys(core, s, pkt[ft[2 + 3 * i]..ft[2 + 3 * i] + ft[3 + 3 * i]], codes[i]);
         }
         i = i + 1;
     }
@@ -844,6 +910,7 @@ fn process_input[&t, &c](tab: &!t conns.Table, core: &!c tables.Core, k: int, n:
             close_conn(tab, core, k, rules.of_wire(total), true, true);
             return 1;
         } else {
+            tables.bump(core, tables.k_pkts_in());
             if handle_packet(tab, core, k, view[0..total]) == 1 {
                 return 1;
             }
@@ -885,6 +952,7 @@ fn step[&t, &c](tab: &!t conns.Table, core: &!c tables.Core, k: int, events: int
         var have = 0;
         match conns.read(tab, k, bf[pending..core.pmax]) {
             Received::Data(got) => {
+                tables.add(core, tables.k_bytes_in(), got);
                 have = pending + got;
                 cd[cp + 2] = now;
                 code = 1;
@@ -1052,6 +1120,11 @@ pub fn wait[&h, &k, &l](heap: &!h Heap, b: Broker, clock: &k Clock, listener: &!
             if now != cw.last_sweep {
                 cw.last_sweep = now;
                 sweep(tw, cw, now);
+                flush_dirty(tw, cw);
+            }
+            if cw.sys_every > 0 && now - cw.sys_last >= cw.sys_every {
+                cw.sys_last = now;
+                publish_sys(cw);
                 flush_dirty(tw, cw);
             }
         }

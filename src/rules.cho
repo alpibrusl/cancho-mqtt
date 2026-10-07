@@ -118,8 +118,12 @@ pub fn qos2_inbound() -> [] int {
     return 26;
 }
 
-pub fn count() -> [] int {
+pub fn reserved_topic() -> [] int {
     return 27;
+}
+
+pub fn count() -> [] int {
+    return 28;
 }
 
 // The tag of rule `i`.
@@ -202,7 +206,10 @@ pub fn tag(i: int) -> [] &static [byte] {
     if i == 25 {
         return "limit.output-full";
     }
-    return "limit.qos2-inbound";
+    if i == 26 {
+        return "limit.qos2-inbound";
+    }
+    return "protocol.reserved-topic";
 }
 
 // What the broker does when the rule fires, for `introspect`'s `connection_rules`.
@@ -230,6 +237,9 @@ pub fn action(i: int) -> [] &static [byte] {
     }
     if i == 24 {
         return "CONNACK 0x03, then close";
+    }
+    if i == 27 {
+        return "acknowledge as usual, do not route or retain";
     }
     return "close";
 }

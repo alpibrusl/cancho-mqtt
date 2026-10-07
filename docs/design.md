@@ -109,6 +109,7 @@ and fails if a default or ceiling here differs from what `mqtt introspect` repor
 | Outbound queue per session, messages | `queue-messages` | 64 | 1,024 | `limit.queue` |
 | QoS 1 and 2 in-flight window per session (outbound) | `inflight` | 16 | 64 | (queues behind the window) |
 | QoS 2 messages received and not yet released, per session | `qos2-inbound` | 16 | 1,024 | `limit.qos2-inbound` |
+| Seconds between `$SYS` updates (0 for none) | `sys-interval` | 10 | 86,400 | (none) |
 | Offline sessions kept (clean-session = 0) | `offline-sessions` | 256 | 16,384 | `limit.offline-sessions` |
 | Retained messages | `retained-messages` | 1,024 | 65,536 | `limit.retained` |
 | Bytes of one retained message, topic included | `retained-slot-bytes` | 1,024 | 262,144 | `limit.retained` |
@@ -172,6 +173,7 @@ unless stated. Spec references are to MQTT 3.1.1 (OASIS, 2014).
 | `limit.topic-level` | a SUBSCRIBE filter with a level over 64 bytes | SUBACK 0x80 for that filter | |
 | `limit.will-size` | a will larger than `will-bytes` | CONNACK 0x03, close | |
 | `limit.output-full` | no room in a session's queue even for a control packet | close | |
+| `protocol.reserved-topic` | a client PUBLISH to a topic beginning `$SYS/` | acknowledged as usual (PUBACK or PUBREC), not routed or retained; counted | 4.7.2 |
 | `limit.qos2-inbound` | a new QoS 2 PUBLISH while the session already holds `qos2-inbound` messages not yet released by PUBREL | close; will is published | |
 
 **MQTT 3.1 (added after v1).** Name `MQIsdp` with level 3 is served as 3.1.1 is, with three differences, each compared with Mosquitto 2.0.18 by
@@ -360,6 +362,43 @@ a byte in the entry header that already existed.
 
 **Not done.** The cost of method A against method B is not measured (the broker has only A). QoS 2 fan-out throughput is in
 `docs/benchmark.md` (added with this section); it was not run for v1, whose cells were QoS 0 and 1.
+
+## 7b. `$SYS`
+
+*Added after v1 (the first item of `docs/later.md`'s order). Written before the code, from what Mosquitto 2.0.18 was seen to do (probed with `mosquitto_sub`, not from its documentation), because the point of the feature is that tooling written for Mosquitto reads it.*
+
+**Topics.** Seventeen, with Mosquitto's names and formats (decimal integers as text; `uptime` is `N seconds`; `version` is `cancho-mqtt version X`):
+`$SYS/broker/` + `version`, `uptime`, `clients/total`, `clients/connected`, `clients/disconnected`, `clients/maximum`, `messages/received`,
+`messages/sent`, `publish/messages/received`, `publish/messages/sent`, `publish/messages/dropped`, `publish/bytes/received`,
+`publish/bytes/sent`, `bytes/received`, `bytes/sent`, `subscriptions/count`, `retained messages/count` (the space is Mosquitto's).
+**Not provided, and said so:** `load/*` (rolling one, five and fifteen minute averages), `heap/*` (the broker does not track a heap
+figure), `store/*` and `messages/stored`, `clients/active`, `clients/inactive`, `clients/expired` (deprecated in Mosquitto),
+`shared_subscriptions/count` (there are no shared subscriptions). A subscriber to `$SYS/#` sees only what is in the list.
+
+**Meaning, where this broker's answer differs in kind from Mosquitto's.** `clients/connected` is connections with a session;
+`clients/disconnected` is persistent sessions with no connection; `clients/total` is their sum; `clients/maximum` is the most `total` has
+been. `publish/messages/sent` and `publish/bytes/sent` count PUBLISHes **queued** for a subscriber (payload bytes), not written to the
+socket, so a message dropped by `limit.queue` is counted as dropped and not as sent, and a message still in a queue is already sent. The
+`bytes/*` and `messages/*` counters are socket bytes and MQTT packets of every type. `retained messages/count` counts the retained
+messages clients published, **not** the `$SYS` topics themselves (Mosquitto counts its own, so the numbers differ by a constant there).
+
+**Delivery.** Not through the retained store: the `$SYS` values live in a table of their own and cost none of the `retained-messages`
+bound. A subscription whose filter matches a `$SYS` topic is sent its current value at once, with the retain flag set, as a retained
+message would be; every `sys-interval` seconds (flag, default 10, 0 for none) each topic is sent to the **connected** sessions that
+match, with the retain flag clear. Both are QoS 1 messages, delivered at the lower of 1 and the granted QoS (Mosquitto does the same).
+One seen difference in the first delivery: Mosquitto sends `clients/maximum` first as a live update (retain flag clear) rather than as
+a retained message, because it publishes that topic only once it has changed; here it is delivered like the other sixteen.
+Offline persistent sessions are not sent the periodic updates (Mosquitto queues them; here a monitoring value that is stale on arrival
+would only fill the queue). A filter that begins with a wildcard does not match a `$` topic (4.7.2-1, already true of the matcher).
+
+**Publishing to `$SYS/...` from a client.** Mosquitto drops it without telling the client. So does this broker, with a tag now
+(`protocol.reserved-topic`: acknowledged as usual, not routed, not retained, counted), so that a client cannot forge a statistic and the
+refusal is visible. Any other `$` topic is an ordinary topic, as in Mosquitto.
+
+**Cost.** Seven counters (bytes and packets each way, publish count and payload bytes in, payload bytes out, client high-water) in the
+counter array that already exists, an increment each; a tick of seventeen small formatted values and seventeen matches per
+`sys-interval`; a table of static names. Nothing grows with the number of connections. **Not measured:** the per-increment cost on the
+fan-out path; `docs/benchmark.md` is re-run after this if the cost is visible.
 
 ## 8. Retained messages
 

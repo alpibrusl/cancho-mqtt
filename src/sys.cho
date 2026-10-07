@@ -1,0 +1,155 @@
+edition 5;
+
+// `mqtt.sys` -- the `$SYS` topics (design section 7b): their names, which are Mosquitto's,
+// and their current values, formatted as text from the counters the broker keeps. Nothing
+// here is stored: a value is computed when it is sent.
+
+module mqtt.sys;
+
+import mqtt.config;
+import mqtt.rules;
+import mqtt.subs;
+import mqtt.tables;
+
+pub fn count() -> [] int {
+    return 17;
+}
+
+// Whether a topic name is under `$SYS/`: a client may not publish there.
+pub fn reserved[&t](name: &t [byte]) -> [] bool {
+    return len(name) >= 5 && int_of(name[0]) == 36 && int_of(name[1]) == 83 && int_of(name[2]) == 89 && int_of(name[3]) == 83 && int_of(name[4]) == 47;
+}
+
+pub fn name(i: int) -> [] &static [byte] {
+    if i == 0 {
+        return "$SYS/broker/version";
+    }
+    if i == 1 {
+        return "$SYS/broker/uptime";
+    }
+    if i == 2 {
+        return "$SYS/broker/clients/total";
+    }
+    if i == 3 {
+        return "$SYS/broker/clients/connected";
+    }
+    if i == 4 {
+        return "$SYS/broker/clients/disconnected";
+    }
+    if i == 5 {
+        return "$SYS/broker/clients/maximum";
+    }
+    if i == 6 {
+        return "$SYS/broker/messages/received";
+    }
+    if i == 7 {
+        return "$SYS/broker/messages/sent";
+    }
+    if i == 8 {
+        return "$SYS/broker/publish/messages/received";
+    }
+    if i == 9 {
+        return "$SYS/broker/publish/messages/sent";
+    }
+    if i == 10 {
+        return "$SYS/broker/publish/messages/dropped";
+    }
+    if i == 11 {
+        return "$SYS/broker/publish/bytes/received";
+    }
+    if i == 12 {
+        return "$SYS/broker/publish/bytes/sent";
+    }
+    if i == 13 {
+        return "$SYS/broker/bytes/received";
+    }
+    if i == 14 {
+        return "$SYS/broker/bytes/sent";
+    }
+    if i == 15 {
+        return "$SYS/broker/subscriptions/count";
+    }
+    return "$SYS/broker/retained messages/count";
+}
+
+// The decimal digits of `n` (not negative) at `at` in `out`; the offset after them.
+fn put_number[&o](out: &!o [byte], at: int, n: int) -> [] int {
+    var width = 1;
+    var m = n;
+    while m >= 10 {
+        m = m / 10;
+        width = width + 1;
+    }
+    var i = width - 1;
+    var v = n;
+    while i >= 0 {
+        out[at + i] = byte_of(48 + v % 10);
+        v = v / 10;
+        i = i - 1;
+    }
+    return at + width;
+}
+
+// The number topic `i` reports, for the topics that are one.
+fn number[&c](core: &c tables.Core, i: int) -> [] int {
+    if i == 1 {
+        return core.now_ms / 1000;
+    }
+    if i == 2 {
+        return core.online + core.offline;
+    }
+    if i == 3 {
+        return core.online;
+    }
+    if i == 4 {
+        return core.offline;
+    }
+    if i == 5 {
+        return tables.counter(core, tables.k_clients_max());
+    }
+    if i == 6 {
+        return tables.counter(core, tables.k_pkts_in());
+    }
+    if i == 7 {
+        return tables.counter(core, tables.k_pkts_out());
+    }
+    if i == 8 {
+        return tables.counter(core, tables.k_pub_in());
+    }
+    if i == 9 {
+        return tables.counter(core, tables.k_delivered());
+    }
+    if i == 10 {
+        return tables.counter(core, rules.queue());
+    }
+    if i == 11 {
+        return tables.counter(core, tables.k_pub_in_bytes());
+    }
+    if i == 12 {
+        return tables.counter(core, tables.k_pub_out_bytes());
+    }
+    if i == 13 {
+        return tables.counter(core, tables.k_bytes_in());
+    }
+    if i == 14 {
+        return tables.counter(core, tables.k_bytes_out());
+    }
+    if i == 15 {
+        return subs.count(core.trie);
+    }
+    return core.retained_used;
+}
+
+// Write topic `i`'s current value into `out` (at least 64 bytes) and answer its length.
+pub fn value[&c, &o](core: &c tables.Core, i: int, out: &!o [byte]) -> [] int {
+    if i == 0 {
+        var n = copy_into(out, "cancho-mqtt version ");
+        n = n + copy_into(out[n..len(out)], config.version());
+        return n;
+    }
+    var n = put_number(out, 0, number(core, i));
+    if i == 1 {
+        n = n + copy_into(out[n..len(out)], " seconds");
+    }
+    return n;
+}

@@ -221,14 +221,14 @@ class Protocol(unittest.TestCase):
             sub.recv(timeout=0.4)
 
     def test_dollar_topics_are_not_matched_by_leading_wildcards(self):
-        # [MQTT-4.7.2-1]
+        # [MQTT-4.7.2-1] (`$d/` is an ordinary `$` topic; publishing under `$SYS/` is refused, see test_sys.py)
         sub = self.connected("s")
-        sub.subscribe([("#", 0), ("+/x", 0), ("$SYS/#", 0)])
+        sub.subscribe([("#", 0), ("+/x", 0), ("$d/#", 0)])
         pub = self.connected("p")
-        pub.publish("$SYS/x", b"1")
+        pub.publish("$d/x", b"1")
         pub.publish("a/x", b"2")
         got = [sub.recv_publish()[:2] for _ in range(2)]
-        self.assertEqual(sorted(got), [("$SYS/x", b"1"), ("a/x", b"2")][::-1] if False else sorted([("$SYS/x", b"1"), ("a/x", b"2")]))
+        self.assertEqual(sorted(got), sorted([("$d/x", b"1"), ("a/x", b"2")]))
         with self.assertRaises(TimeoutError):
             sub.recv(timeout=0.3)
 
