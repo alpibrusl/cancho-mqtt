@@ -31,7 +31,7 @@ LOAD_CPUS = "%d,%d" % (NCPU - 2, NCPU - 1)
 ROOT = os.path.dirname(HERE)
 
 BROKERS = {
-    # This broker, from `lex-sys build`, run from the load generator's image (a glibc userland the binary runs
+    # This broker, from `cancho build`, run from the load generator's image (a glibc userland the binary runs
     # in; Docker Hub was rate limiting a pull of a plain OS image) with the binary mounted in. The
     # connection bound is raised so the 5,000-connection cells fit; everything else is the default.
     "mqtt": dict(image="emqx/emqtt-bench:latest", entrypoint="/mqtt", args=["serve", "--port", "1883", "--max-connections", "8192"],

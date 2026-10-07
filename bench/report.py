@@ -10,7 +10,7 @@ import statistics as st
 
 HERE = pathlib.Path(__file__).resolve().parent
 R = json.loads((HERE / "results.json").read_text())
-ORDER = [("mqtt", "lexsys-mqtt"), ("mosquitto", "Mosquitto 2.0.18"), ("nanomq", "NanoMQ"), ("emqx", "EMQX 5.8.6"),
+ORDER = [("mqtt", "cancho-mqtt"), ("mosquitto", "Mosquitto 2.0.18"), ("nanomq", "NanoMQ"), ("emqx", "EMQX 5.8.6"),
          ("vernemq", "VerneMQ 2.2.1"), ("hivemq-ce", "HiveMQ CE")]
 
 

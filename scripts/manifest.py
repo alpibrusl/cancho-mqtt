@@ -2,11 +2,11 @@
 """The authority report: derived by the compiler, committed, embedded in the
 binary, and gated against a ceiling (docs/design.md section 2, gate G4).
 
-For every [[bin]] in lex-sys.toml:
+For every [[bin]] in cancho.toml:
 
-1. pass 1: `lex-sys authority <sources> --std --output json`;
+1. pass 1: `cancho authority <sources> --std --output json`;
 2. write manifests/<bin>.authority.json (the committed record) and
-   generated/<bin>/built.ls, which holds the report, the JSON Schema
+   generated/<bin>/built.cho, which holds the report, the JSON Schema
    (schemas/<bin>.v1.json) and the compiler pin as string literals, so the binary
    can print them (`mqtt introspect`);
 3. pass 2: derive again with the new generated file and require the same
@@ -22,7 +22,7 @@ For every [[bin]] in lex-sys.toml:
 with the fresh derivation when the binary exists, so a stale build is caught as
 well as a stale file.
 
-The compiler is $LEX_SYS, or `lex-sys` on PATH.
+The compiler is $CANCHO, or `cancho` on PATH.
 """
 
 import json
@@ -38,18 +38,18 @@ FORBIDDEN = {"ffi", "net_out", "fs_read", "fs_write", "file_read", "file_write",
 
 
 def compiler():
-    return os.environ.get("LEX_SYS", "lex-sys")
+    return os.environ.get("CANCHO", "cancho")
 
 
 def sources(entry):
-    # Dependencies are fetched into build/deps by `lex-sys install`; the report
+    # Dependencies are fetched into build/deps by `cancho install`; the report
     # covers them, since they are part of the program.
     subprocess.run([compiler(), "install"], cwd=ROOT, capture_output=True, text=True)
     files = []
     for s in entry["sources"]:
         p = ROOT / s
-        files.extend(sorted(str(x) for x in p.glob("*.ls")) if p.is_dir() else [str(p)])
-    files.extend(sorted(str(x) for x in (ROOT / "build" / "deps").glob("*.ls")))
+        files.extend(sorted(str(x) for x in p.glob("*.cho")) if p.is_dir() else [str(p)])
+    files.extend(sorted(str(x) for x in (ROOT / "build" / "deps").glob("*.cho")))
     return files
 
 
@@ -57,7 +57,7 @@ def derive(files):
     out = subprocess.run([compiler(), "authority", *files, "--std", "--output", "json"],
                          capture_output=True, text=True)
     if out.returncode != 0:
-        sys.exit("lex-sys authority failed:\n" + out.stdout + out.stderr)
+        sys.exit("cancho authority failed:\n" + out.stdout + out.stderr)
     return json.loads(out.stdout)
 
 
@@ -66,7 +66,7 @@ def compact(value):
 
 
 def literal(text):
-    """A lex-sys string literal: six escapes, no others, one line."""
+    """A cancho string literal: six escapes, no others, one line."""
     out = []
     for ch in text:
         if ch == "\\":
@@ -74,7 +74,7 @@ def literal(text):
         elif ch == '"':
             out.append('\\"')
         elif ord(ch) < 32:
-            sys.exit("a control character cannot be written in a lex-sys literal")
+            sys.exit("a control character cannot be written in a cancho literal")
         else:
             out.append(ch)
     return '"' + "".join(out) + '"'
@@ -140,7 +140,7 @@ def printed(name):
 
 def main():
     check = "--check" in sys.argv[1:]
-    with open(ROOT / "lex-sys.toml", "rb") as f:
+    with open(ROOT / "cancho.toml", "rb") as f:
         project = tomllib.load(f)
     with open(ROOT / "ceiling.toml", "rb") as f:
         ceilings = tomllib.load(f)
@@ -150,10 +150,10 @@ def main():
         files = sources(entry)
         first = derive(files)
         record = ROOT / "manifests" / ("%s.authority.json" % name)
-        built = ROOT / "generated" / name / "built.ls"
+        built = ROOT / "generated" / name / "built.cho"
         record_text = json.dumps(first, indent=2) + "\n"
         schema = json.loads((ROOT / "schemas" / ("%s.v1.json" % name)).read_text())
-        built_text = generated(first, schema, project["package"]["lex-sys"])
+        built_text = generated(first, schema, project["package"]["cancho"])
         if check:
             if not record.exists() or record.read_text() != record_text:
                 problems.append("%s: %s is not the compiler's report" % (name, record.relative_to(ROOT)))

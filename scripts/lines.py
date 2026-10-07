@@ -12,7 +12,7 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 MAX_LINES = 2000
-SUFFIXES = {".ls", ".py", ".md", ".toml", ".yml"}
+SUFFIXES = {".cho", ".py", ".md", ".toml", ".yml"}
 SKIP_DIRS = {".git", "build", "target"}
 
 

@@ -1,7 +1,7 @@
 # The authority ceiling of the broker (docs/design.md section 2).
 #
 # This is what a person writes and reviews. It is a ceiling, never the
-# authority: the authority is whatever `lex-sys authority` derives from src/.
+# authority: the authority is whatever `cancho authority` derives from src/.
 # scripts/manifest.py fails when a derived label is not allowed here, when
 # `bounded` is false, or when any foreign symbol appears. Widening the broker is
 # an edit to this file: a reviewable diff.
@@ -9,7 +9,7 @@
 # Labels are compared as the compiler spells them, argument included. The port
 # is a command-line argument, so it is not known when the program is compiled and
 # the compiler reports `net_in("")`: the broker may listen, and which port is the
-# perimeter's business (lex-sys docs/net.md section 2).
+# perimeter's business (cancho docs/net.md section 2).
 
 [mqtt]
 allow = ["args", "heap", "net_in(\"\")", "conn_accept", "conn_read", "conn_write", "poll", "clock", "io_write", "err_write", "signals(\"INT,TERM\")", "signals_read"]

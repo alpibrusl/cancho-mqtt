@@ -1,7 +1,7 @@
 edition 5;
 
 // `mqtt.rules` -- the broker's connection-level rules, as numbers the hot path
-// can count and as the tags (`<area>.<name>`, lex-sys docs/agent-toolbox.md D5)
+// can count and as the tags (`<area>.<name>`, cancho docs/agent-toolbox.md D5)
 // the logs, the counters and `introspect` name. One list: `tag` is the only place
 // a tag is spelled, and `describe` reads `count` and `tag`, so the catalogue and
 // the code cannot disagree.

@@ -1,11 +1,11 @@
-# lexsys-mqtt: design
+# cancho-mqtt: design
 
 > **Status: accepted by the maintainer (section 13); numbers still to be measured where marked.** Written before any code (issue #1). Every number below is a
 > *choice*, not a measurement; each is marked **[fix]** (decided here, a test pins it) or **[measure]** (a claim that
 > a later task must measure and may have to correct in place). Nothing in this document has been run.
 
-An MQTT 3.1.1 broker in lex-sys. One thread, one `Poller`, memory sized at start, every input bounded, an authority
-report that can be checked. The model is `lexsys-cache`; the pattern, not the code, is reused.
+An MQTT 3.1.1 broker in cancho. One thread, one `Poller`, memory sized at start, every input bounded, an authority
+report that can be checked. The model is `cancho-cache`; the pattern, not the code, is reused.
 
 ## 1. Scope
 
@@ -53,11 +53,11 @@ argument, so the compiler cannot know it and derives `net_in("")`, as `examples/
 listen; which port is the perimeter's decision (`net.md` section 2). A broker built for one fixed port would carry
 `net_in("1883")` and could not be tested on a free port, so v1 takes the unnamed row. Also, the ceiling lists
 `conn_read`, `conn_write` and `err_write` before the code that uses them exists: rows are exact, so the derived set may
-be smaller than the ceiling, never larger. The skeleton in `src/main.ls` derives `args`, `clock`, `conn_accept`,
+be smaller than the ceiling, never larger. The skeleton in `src/main.cho` derives `args`, `clock`, `conn_accept`,
 `heap`, `io_write`, `net_in("")` and `poll`.
 
 Never allowed, whatever `ceiling.toml` says (a list in `scripts/manifest.py`): `ffi` (TLS through OpenSSL, anything foreign;
-makes the report unbounded; **corrected, `docs/later.md`:** lex-sys now has a pure TLS 1.3 client with no `ffi`, but it is a client
+makes the report unbounded; **corrected, `docs/later.md`:** cancho now has a pure TLS 1.3 client with no `ffi`, but it is a client
 only, so a broker still has no TLS that avoids `ffi`), `net_out` (bridging), `io_read`, and every `fs`, `file` and `dir` label (persistence, logging to
 disk). `scripts/mutants.py` applies four mutations (a file read, a foreign call, a ceiling that lacks a label the
 program uses, an embedded report that is not the compiler's) to a copy of the repository and requires the gate to
@@ -186,10 +186,10 @@ the check produces. Fuzzing is G7.
 
 ## 5a. The agent-first surface: CLI, errors, logs
 
-lexsys programs are written for a reader that is a program first. The contract is lex-sys `docs/agent-toolbox.md`
-(D2 to D7, D11), implemented once in the `contract/` package of `lexsys-tools` (`toolbox.cli`, `toolbox.fail`,
+cancho programs are written for a reader that is a program first. The contract is cancho `docs/agent-toolbox.md`
+(D2 to D7, D11), implemented once in the `contract/` package of `cancho-tools` (`toolbox.cli`, `toolbox.fail`,
 `toolbox.rules`, `toolbox.describe`, `toolbox.out`). The broker **depends on that package, pinned by commit, and does
-not copy it**: `[dependencies.*]` entries in `lex-sys.toml`, each a full `rev`, as `docs/package-system.md` section 8
+not copy it**: `[dependencies.*]` entries in `cancho.toml`, each a full `rev`, as `docs/package-system.md` section 8
 prescribes. A broker is a long-running stream tool, not a one-shot document tool, so each rule below says where it
 applies as written and where a server forces a deviation.
 
@@ -226,7 +226,7 @@ live in the tool's own `extra_rules` beside the shared catalogue. **Connection-l
 status**, since a refused client is not a failed process, so `toolbox.describe` has no row shape for them (its
 catalogue is `tag|exit|repairable|summary`). That is a gap in the shared package, listed in section 12; until it is
 closed they are published by the `mqtt rules` command (tag and action, as NDJSON), and a proposed change to
-`toolbox.describe` goes to `lexsys-tools` rather than a fork here. Every tag has a fixture
+`toolbox.describe` goes to `cancho-tools` rather than a fork here. Every tag has a fixture
 (`tests/conformance/test_rules.py`), and a test checks the fixtures are exactly the tags `mqtt rules` lists.
 
 **Repairs** exist only where a script can apply one without judgement and never widen authority: `args.unknown-flag`
@@ -236,7 +236,7 @@ port is the caller's decision, not a script's.
 
 **Logs are the stream.** `mqtt serve` writes one JSON object per line to stdout, in a deterministic key order, and
 **ends with an `end` record** `{"type":"end","ok":...,"complete":...,counts}` on graceful stop (SIGINT or SIGTERM,
-through lex-sys `Signals`, a handle the `Poller` waits on). A stream with no `end` record is truncated (D2): a
+through cancho `Signals`, a handle the `Poller` waits on). A stream with no `end` record is truncated (D2): a
 kill flushes nothing. Record types, all bounded:
 
 | `type` | When | Bound |
@@ -320,7 +320,7 @@ received and not completely acknowledged) and is dropped with the session (clean
 session).
 
 **Delivery out.** A subscription may now be granted QoS 2 and a message goes out at the lower of its QoS and the granted.
-The queue entry (§4, `tables.ls`) gets one more *kind* and one more state machine:
+The queue entry (§4, `tables.cho`) gets one more *kind* and one more state machine:
 
 | kind | what | states |
 |---|---|---|
@@ -389,11 +389,11 @@ mutant is not a gate.
 | G1 | codec (#3) | 1,000+ generated and fuzzed packets decode identically to a Python oracle; one byte at a time decodes the same as whole | mutant that skips the remaining-length bound |
 | G2 | topics (#4) | trie matching equals a Python reference over generated filters and topics, including every wildcard edge, `$`, empty levels | mutant that lets `#` match mid-filter |
 | G3 | conformance (#10) | every normative statement in the coverage table has a test naming it; differential scenarios against Mosquitto agree on what each client observes | removing a test fails the table check |
-| G4 | authority (#9) | `lex-sys authority` labels are a subset of the ceiling; no foreign symbol; bounded | a mutant adding `file_write` |
+| G4 | authority (#9) | `cancho authority` labels are a subset of the ceiling; no foreign symbol; bounded | a mutant adding `file_write` |
 | G5 | fan-out (#6) | stalled subscriber leaves RSS flat; ordering per subscriber; no delivery to non-matching; 1,000 subscribers; peak RSS reported | mutant that removes the queue bound |
 | G6 | memory (#8, #11) | RSS after a 10-minute churn run is within the printed budget plus a fixed overhead recorded in the first run | mutant that leaks a session on takeover |
 | G7 | hardening (#11) | a fixed seed set (recorded in the repo) of byte streams split at random points, malformed and oversized lengths, slow and resetting clients, causes no trap; every bound tested at its edge | mutant that removes a bounds check |
-| G8 | style | `lex-sys fmt --check`, no file over 2,000 lines, every rule in §5 has a test naming its tag | a 2,001-line file |
+| G8 | style | `cancho fmt --check`, no file over 2,000 lines, every rule in §5 has a test naming its tag | a 2,001-line file |
 | G9 | agent surface (section 5a; issue #5) | `introspect` validates against its schema; its flag table equals section 4; every rule tag has a fixture; each process-level error is valid envelope JSON with the exit code the catalogue says; SIGTERM yields an `end` record with `complete:true`; a stalled log reader does not stall clients | a build whose flag default differs from section 4; a catalogue tag with no fixture |
 
 Mutants of each new piece must all be killed or individually explained in the PR that adds the piece.
@@ -423,7 +423,7 @@ fixed-offered-load latency cell); B5 ran without retained messages; B6 measured 
 comparison covers five incumbents (Mosquitto, NanoMQ, EMQX, VerneMQ, HiveMQ CE), not Mosquitto alone, and the load generator
 is `emqtt-bench` as planned. The honest outcome the plan expected ("a loss is plausible") was a mixed one: see the document.
 
-## 12. What lex-sys gives, and gaps to confirm in #2
+## 12. What cancho gives, and gaps to confirm in #2
 
 From `docs/native-sockets.md`, `docs/listen.md`, `docs/tls-nonblocking.md`:
 
@@ -440,10 +440,10 @@ From `docs/native-sockets.md`, `docs/listen.md`, `docs/tls-nonblocking.md`:
   packet bound is to be tested first in #3; if it does, the packet bound's default is lowered and this section says so.
 - **Gap 6: `std.conns.Table` fields are readable** (`native-sockets.md` §6 correction); no effect here beyond noting
   that tickets are not authority.
-- **Gap 7: `toolbox.describe` has no shape for rules that are not exit statuses** (section 5a). To be proposed to `lexsys-tools` (not yet raised); until accepted the broker publishes them with `mqtt rules`.
+- **Gap 7: `toolbox.describe` has no shape for rules that are not exit statuses** (section 5a). To be proposed to `cancho-tools` (not yet raised); until accepted the broker publishes them with `mqtt rules`.
 - **Gap 8: standard output blocks.** A log reader that stops reading would stall the poller (section 5a, gate G9). Not measured yet.
 - **Gap 9: `toolbox.describe` prints the toolbox's evidence list, not this program's.** `mqtt introspect` says its gates
-  are "M1 schema conformance ... M9 memory flatness", "each a test in lexsys-tools/tests/conformance". For this broker that
+  are "M1 schema conformance ... M9 memory flatness", "each a test in cancho-tools/tests/conformance". For this broker that
   is false: its gates are G1 to G9 of section 10, in `tests/` and `scripts/` here. To be proposed upstream as a field of
   `describe.Tool` (not yet raised). `mqtt skill` likewise says "`--format text`" and a read-only guarantee in generic words.
 - **Gap 10: saturated QoS 0 fan-out is bimodal run to run** (about 350k or 650k deliveries/s on one core, `docs/benchmark.md`).
