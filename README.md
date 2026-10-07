@@ -182,7 +182,7 @@ Deliveries a second at the subscribers, 4 publishers and 100 subscribers going a
 Every change goes through what CI runs: `cancho fmt --check src tests generated`, `cancho build`, `cancho test`, the schema, manifest, coverage and site checks, the four authority mutants, the line limit, and the conformance, interop and differential suite against Mosquitto. Design before code, in `docs/design.md`, with claims measured; a claim that turns out false is corrected in place. No source file over 2,000 lines, every refusal has a rule tag, no input reaches a panic.
 
 <!-- gen:counts -->
-155 black-box tests that read only what a client sees, and 20 unit tests of the codec, the topic trie and the flag table
+155 black-box tests that read only what a client sees, and 25 unit tests of the codec, the topic trie and the flag table
 <!-- /gen:counts -->
 
 ## Licence

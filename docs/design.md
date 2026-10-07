@@ -408,6 +408,41 @@ counter array that already exists, an increment each; a tick of seventeen small 
 `sys-interval`; a table of static names. Nothing grows with the number of connections. **Not measured:** the per-increment cost on the
 fan-out path; `docs/benchmark.md` is re-run after this if the cost is visible.
 
+## 7c. Authentication
+
+*Added after v1 (the second item of `docs/later.md`'s order). Written before the broker code. **Status: designed; only the hash is built and measured** (`src/auth.cho`, `tests/auth_test.cho`). Choices are marked as choices; the maintainer's to change.*
+
+**Scope.** Authentication at CONNECT: who the client is. Not authorisation (which topics it may use), not client certificates (they wait on cancho's TLS step 4, `docs/later.md`), not enhanced authentication (MQTT 5). With authentication off, the user name and password fields are decoded and ignored, as now.
+
+**1. Credential source: standard input, once, at start (choice).** `--auth stdin` (a `choice` flag, `off` by default, so a later `file` or `cert` is a value and not a new flag). The broker reads the credential table from file descriptor 0 until end of input, before it listens, and never again.
+*Why not a file.* A file path is the shape `docs/later.md` first expected, and it was checked against the compiler: `narrow` takes a literal (`docs/filesystem.md` section 2), so the path is fixed when the program is compiled, which does not fit a prebuilt binary, and the label (`fs_read("/etc/...")`) lets the program read a whole directory. *Why not a flag:* the value would be in `ps` and in `introspect`. Standard input costs one label, `io_read`, which can read descriptor 0 and nothing else, so the report keeps saying "this program cannot read a file". It is what a supervisor already gives a process: `StandardInput=file:/etc/cancho-mqtt/passwd` in systemd, `docker run -i ... < passwd`. **The cost:** no reload without a restart (the poller does not watch files; a reload on `SIGHUP` would need the descriptor to stay open and readable, which a pipe does not allow), and a restart drops every connection. **`io_read` is on the "never allowed" list of `scripts/manifest.py` today; this feature removes it from that list**, adds the row `io_read` (the credential table, read once at start, only with `--auth stdin`) to section 2, and `ceiling.toml` grows by that exact label. The four authority mutants still apply and a fifth is added: a read of a file must still be refused.
+
+**2. The table (choice).** One user per line, `name:scheme`, two schemes:
+
+* `pbkdf2-sha256$<iterations>$<salt>$<hash>`: for passwords a person chose.
+* `sha256$<salt>$<hash>`: for secrets a program generated with at least 128 random bits (device keys). One hash, microseconds. The broker cannot tell the two cases apart; using it for a guessable password is the operator's mistake and the document says so.
+
+Salt and hash are lowercase hex (no decoder beyond hex is needed); salt 8 to 32 bytes, hash 32. Bounds, each with a flag where it is a limit: user name 1 to 64 bytes without `:` or a control byte, a line at most 256 bytes, `--auth-users` records (default 1024, ceiling 65536), iterations 1 to 1,000,000. A table that breaks a bound, a duplicate name or a malformed line **refuses to start** with a process error carrying the rule `auth.credentials-invalid`, the line number and the reason, never the line's content. The table is memory sized at start (about 150 bytes a record).
+The file is made by `scripts/passwd.py`, **not by the broker**: the broker has no randomness and no file access, and a generator that needs both belongs outside it. The script reads the password from a terminal or standard input, never from `argv`, and uses `hashlib.pbkdf2_hmac` and `os.urandom`. A test checks that the broker's hash and the script's agree.
+
+**3. At CONNECT, with authentication on (before any session effect).**
+
+| Client sent | Reply | Rule |
+|---|---|---|
+| no user name | CONNACK 5 (not authorised), close | `auth.required` |
+| unknown user, or wrong password | CONNACK 4 (bad user name or password), close | `auth.bad-credentials` |
+| over the cost budget (item 5) | CONNACK 3 (server unavailable), close | `limit.auth-budget` |
+
+The check runs before takeover, will handling, session lookup or any change to a table: a client that fails authentication cannot take over, disconnect, or fire anyone's will. An unknown user costs the same work as a known one (a dummy hash at the table's highest iteration count) and the same reply, so neither time nor reply says which names exist. The comparison of hashes does not stop at the first differing byte. The user name is **never logged**: a mistyped password is often in that field. A refusal logs the rule and the client identifier, like every other. Three connection rules are added (31 in all).
+
+**4. Cost, measured.** PBKDF2-HMAC-SHA-256 in `src/auth.cho` agrees with `hashlib.pbkdf2_hmac` on four vectors (1, 2, 4,096 and 10,000 iterations). A native binary does 100,000 iterations in 135 ms (three runs 130 to 139 ms), **1.35 ms per thousand; OpenSSL, through Python, 0.25 ms** on the same machine, so five times slower. The broker has one thread, so **every login stalls every connection** for that long: 13.5 ms at 10,000 iterations. For comparison, `mosquitto_passwd` 2.0.18 writes `$7$101$...`, PBKDF2-SHA-512 with 101 iterations. The generator's default is 10,000 (choice): about a hundred times Mosquitto's, and far below the 600,000 or so that current guidance for PBKDF2-SHA-256 names (from memory; not checked here). A broker on one thread cannot afford more, so **a stolen table is cheaper to crack offline here than a table made by guidance's number**. The honest answer is the second scheme: a random 128-bit secret is not guessable, and one hash is enough.
+
+**5. A budget, so that logins cannot starve the broker (choice).** `--auth-budget` (default 200,000, ceiling 100,000,000): iterations of work the broker will do in any one second; a `sha256` record costs 1. Fixed one-second windows. Over it, the client is refused with `limit.auth-budget` and may retry. At the default the worst case is about 27 percent of one core spent hashing (measured rate above). **What this does and does not do:** it bounds the stall; it does **not** stop an attacker who sends bad passwords from using the whole budget and so denying password logins to everyone (key-based `sha256` records are one unit each and mostly still get through). It is a limit on harm, not a defence. There is no per-source limit: whether the accept path exposes the peer address has **not been checked**, and none is designed here. A reconnect storm of 1,000 password clients at 10,000 iterations needs 13.5 s of hashing and, at the default budget, about 50 s to admit. **Not measured:** that storm against the real broker.
+
+**6. What is not done, and said so.** Authorisation (an ACL would add a lookup per PUBLISH and per SUBSCRIBE filter; its cost against the fan-out is unmeasured). Reload. Client certificates. A hash stronger than PBKDF2 (`std` has none, and a memory-hard function would also need memory the tables do not have). Password change without restart.
+
+**7. Tests this section commits to.** Unit: the hash (built), the table parser (every bound and malformed line). Protocol: every row of the table above; that a failed login cannot take over a session; that a good login with an unknown user name differs in nothing visible from a bad password. Rules: a fixture for each new rule. Differential: the same users file under Mosquitto 2.0.18 (`password_file`, `allow_anonymous false`); the CONNACK codes for no credentials, a wrong password and an unknown user must agree, and any difference is written down. Fuzz: CONNECT with random user and password fields. CLI and `introspect`: the new flags and the `auth.credentials-invalid` error with its schema and fixture. Authority: the `io_read` row and the new mutant. Benchmark: with authentication off the numbers must not move; with it on, logins a second at the default budget.
+
 ## 8. Retained messages
 
 A retained PUBLISH replaces the stored message for its topic; an empty retained payload clears it (3.3.1-6, 3.3.1-10).

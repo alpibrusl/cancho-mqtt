@@ -136,7 +136,7 @@ $ mqtt introspect | jq -c &#x27;.authority | {bounded, effects}&#x27;
 <h2 id="break">We try to break it</h2>
 <p>Claims are measured, and a claim found false is corrected where it was made. Behind this page:</p>
 <ul class="plain">
-  <li><!-- gen:counts -->155 black-box tests that read only what a client sees, and 20 unit tests of the codec, the topic trie and the flag table<!-- /gen:counts -->.</li>
+  <li><!-- gen:counts -->155 black-box tests that read only what a client sees, and 25 unit tests of the codec, the topic trie and the flag table<!-- /gen:counts -->.</li>
   <li><strong>A differential against Mosquitto 2.0.18.</strong> The same scripted and generated scenarios run against both brokers and what each client sees is compared, including QoS 2, MQTT 3.1 clients and the <code>$SYS</code> counters. The differences that remain are written down and asserted, so one nobody wrote down fails.</li>
   <li><strong>Hostile input.</strong> Thousands of malformed, split and oversized connections, slowloris, tight bounds; no input reaches a panic.</li>
   <li><strong>Memory flat under churn</strong>, asserted, with transparent huge pages off (they make a lazily touched table grow in 2&nbsp;MiB steps).</li>

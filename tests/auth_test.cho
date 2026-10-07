@@ -1,0 +1,72 @@
+edition 5;
+
+import std.test;
+import mqtt.auth;
+
+fn hexval(c: int) -> [] int {
+    if c >= 97 {
+        return c - 87;
+    }
+    return c - 48;
+}
+
+// True when `dk` is the 32 bytes spelled by `hex`.
+fn same[&d, &h](dk: &d [byte], hex: &h [byte]) -> [] bool {
+    var i = 0;
+    var ok = true;
+    while i < 32 {
+        let want = hexval(int_of(hex[i * 2])) * 16 + hexval(int_of(hex[i * 2 + 1]));
+        if int_of(dk[i]) != want {
+            ok = false;
+        }
+        i = i + 1;
+    }
+    return ok;
+}
+
+// Vectors from Python's hashlib.pbkdf2_hmac('sha256', ...), the first two being RFC 7914 / RFC 6070 style.
+pub fn test_one_iteration() -> [] int {
+    region a {
+        let dk = alloc_slice[a](32, byte_of(0));
+        test.assert_eq(auth.pbkdf2_sha256("password", "salt", 1, dk), 0);
+        test.assert(same(dk, "120fb6cffcf8b32c43e7225256c4f837a86548c92ccc35480805987cb70be17b"));
+    }
+    return 0;
+}
+
+pub fn test_two_iterations() -> [] int {
+    region a {
+        let dk = alloc_slice[a](32, byte_of(0));
+        auth.pbkdf2_sha256("password", "salt", 2, dk);
+        test.assert(same(dk, "ae4d0c95af6b46d32d0adff928f06dd02a303f8ef3c251dfd6e2d85a95474c43"));
+    }
+    return 0;
+}
+
+pub fn test_4096_iterations() -> [] int {
+    region a {
+        let dk = alloc_slice[a](32, byte_of(0));
+        auth.pbkdf2_sha256("password", "salt", 4096, dk);
+        test.assert(same(dk, "c5e478d59288c841aa530db6845c4c8d962893a001ce4e11a4963873aa98134a"));
+    }
+    return 0;
+}
+
+pub fn test_ten_thousand() -> [] int {
+    region a {
+        let dk = alloc_slice[a](32, byte_of(0));
+        auth.pbkdf2_sha256("hunter2", "0123456789abcdef", 10000, dk);
+        test.assert(same(dk, "5d5eb7b911f7fb3932f0ef843e4c6cd7f83f111307011ab3b68fdf46982dd803"));
+    }
+    return 0;
+}
+
+pub fn test_refuses_nonsense() -> [] int {
+    region a {
+        let dk = alloc_slice[a](32, byte_of(0));
+        let short = alloc_slice[a](8, byte_of(0));
+        test.assert_eq(auth.pbkdf2_sha256("p", "s", 0, dk), -1);
+        test.assert_eq(auth.pbkdf2_sha256("p", "s", 1, short), -1);
+    }
+    return 0;
+}

@@ -121,6 +121,8 @@ broker needs none of this and remains the answer where TLS is wanted before thes
 
 ## Authentication and authorisation
 
+> **Status: authentication is designed in `docs/design.md` section 7c** (standard input as the credential source, PBKDF2 and a key scheme, a cost budget); the hash is built and measured. Where this section says a file read at start, section 7c replaces it: the path would be fixed at compile time and the label wider. Authorisation, reload and certificates are still as described below.
+
 **Why out.** v1 is anonymous: the codec decodes the user name and password fields (`wire.cho`, `c_user`, `c_pass`) so a client
 that sends them is not refused, and the broker ignores them. There is no credential source, and a broker without one cannot
 check anything.
