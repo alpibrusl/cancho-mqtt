@@ -81,6 +81,15 @@ Medians, with the range of runs in brackets. Final data: `bench/results.json`.
 | VerneMQ 2.2.1 | 84/194/587 | 123/758/1415 | 335 / 351 / 453 | 5000 |
 | HiveMQ CE | 161/561/4498 | 161/415/4098 | 188 / 247 / 306 | 5000 |
 
+### A later re-run of cancho-mqtt alone (after `$SYS`)
+
+One core, three runs each, the same cells and the same VM, run again after the `$SYS` counters were added (to see whether the counters cost
+anything on the fan-out path): saturated QoS 0 **1,211k to 1,359k** deliveries/s at 63% to 69% of the core (the table's median is
+1,222k), saturated QoS 1 **217k to 240k** at 88% to 92% (the table's 199k). The `$SYS` counters cost nothing visible. The QoS 1
+figure is 9% to 20% above the table's, which this change cannot explain (it adds work, not removes it): treat it as run-to-run variance
+of this VM, bigger than the 10% below which this document makes no claims. The tables above are the committed data (`bench/results.json`);
+the later run was not committed over them, so that the incumbents' and cancho-mqtt's cells in a table were measured in the same session.
+
 ## Reading them
 
 **Say these.**
@@ -156,7 +165,7 @@ behaviour as the tables elsewhere in the broker, and the bound is still `memory_
   tests on the same VM, and one of cancho-mqtt's early runs was disturbed that way and replaced. cancho-mqtt's reported runs
   were made with the machine idle; the incumbents' were not always. Medians and ranges are shown, and small differences
   should be read with that in mind.
-- **Effort was uneven.** cancho-mqtt's saturated QoS 0 path was profiled and changed twice (a log event per refused message became a counter; per-message writes became one coalesced write per flush, below). No other broker was tuned. No other broker was tuned.
+- **Effort was uneven.** cancho-mqtt's saturated QoS 0 path was profiled and changed twice (a log event per refused message became a counter; per-message writes became one coalesced write per flush, below). No other broker was tuned.
 
 ## Cells as run, against the plan in the design
 
