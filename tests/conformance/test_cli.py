@@ -50,8 +50,10 @@ class Surface(unittest.TestCase):
         self.assertTrue(doc["authority"]["bounded"])
         self.assertEqual(doc["authority"]["foreign_symbols"], [])
         names = {l["name"] for l in doc["authority"]["labels"]}
-        for forbidden in ("ffi", "net_out", "file_read", "file_write", "fs_read", "fs_write", "io_read", "dir_read"):
+        for forbidden in ("ffi", "net_out", "file_read", "file_write", "fs_read", "fs_write", "dir_read"):
             self.assertNotIn(forbidden, names)
+        # Standard input is the credential table, read once at start (design section 7c): the one read there is.
+        self.assertIn("io_read", names)
         self.assertEqual(doc["reads_environment"], False)
 
     def test_introspect_agrees_with_the_committed_authority_report(self):
@@ -71,7 +73,7 @@ class Surface(unittest.TestCase):
             self.assertEqual(limits[name]["ceiling"], ceiling, name)
         # Every numeric flag is either a bound in the table or one of the two the text names.
         extra = set(flags) - {r[0] for r in rows}
-        self.assertEqual(extra, {"port", "stats-seconds", "format"})
+        self.assertEqual(extra, {"port", "stats-seconds", "format", "auth"})
 
     @unittest.skipUnless(sys.platform.startswith("linux"), "F_SETPIPE_SZ is Linux's")
     def test_a_log_reader_that_stops_reading_stalls_the_broker(self):
@@ -303,7 +305,7 @@ class Text(unittest.TestCase):
         status, out, err = run("rules", "--format", "text")
         self.assertEqual(status, 0)
         lines = out.splitlines()
-        self.assertEqual(len(lines), 28)
+        self.assertEqual(len(lines), 31)
         self.assertTrue(lines[0].startswith("protocol.connect-first  "))
         self.assertNotIn("{", out)
 

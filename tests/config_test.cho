@@ -45,6 +45,9 @@ pub fn test_indices_name_their_flags() -> [] int {
     test.assert(bytes.equal(bytes.field(bytes.field(table, 59, config.i_stats() + 1), 124, 1), "stats-seconds"));
     test.assert(bytes.equal(bytes.field(bytes.field(table, 59, config.i_qos2_inbound() + 1), 124, 1), "qos2-inbound"));
     test.assert(bytes.equal(bytes.field(bytes.field(table, 59, config.i_sys_interval() + 1), 124, 1), "sys-interval"));
+    test.assert(bytes.equal(bytes.field(bytes.field(table, 59, config.i_auth_users() + 1), 124, 1), "auth-users"));
+    test.assert(bytes.equal(bytes.field(bytes.field(table, 59, config.i_auth_budget() + 1), 124, 1), "auth-budget"));
+    test.assert(bytes.equal(bytes.field(bytes.field(table, 59, config.i_auth() + 1), 124, 1), "auth"));
     test.assert(bytes.equal(bytes.field(bytes.field(table, 59, config.i_format() + 1), 124, 1), "format"));
     return 0;
 }

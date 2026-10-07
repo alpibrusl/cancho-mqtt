@@ -10,7 +10,7 @@ measured or marked as a choice. The rules that matter most:
   that never widens authority; logs are bounded NDJSON ending with an `end` record; no payload is ever logged.
   A new flag, rule or log record is not done until it is in the tables, the schema and a fixture.
 - **The gate:** `cancho fmt --check`, `cancho build`, `python3 scripts/manifest.py --check`,
-  `python3 scripts/mutants.py`, `python3 scripts/lines.py`, `python3 scripts/site.py --check` (the README's and the page's examples are generated from the built program). A gate is fixed before the code it judges and must be
+  `python3 scripts/mutants.py`, `python3 scripts/lines.py`, `python3 scripts/site.py --check` (the README's and the page's examples are generated from the built program), `python3 scripts/side_by_side.py --check` (docs/side-by-side.md is what this broker and Mosquitto both did). A gate is fixed before the code it judges and must be
   able to fail.
 - **No file over 2,000 lines. Every refusal has a rule tag. No input reaches a panic.**
 - **Measured claims only.** A claim found false is corrected in place, in the document that made it.

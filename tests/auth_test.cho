@@ -1,0 +1,220 @@
+edition 5;
+
+import std.test;
+import mqtt.auth;
+
+fn hexval(c: int) -> [] int {
+    if c >= 97 {
+        return c - 87;
+    }
+    return c - 48;
+}
+
+// True when `dk` is the 32 bytes spelled by `hex`.
+fn same[&d, &h](dk: &d [byte], hex: &h [byte]) -> [] bool {
+    var i = 0;
+    var ok = true;
+    while i < 32 {
+        let want = hexval(int_of(hex[i * 2])) * 16 + hexval(int_of(hex[i * 2 + 1]));
+        if int_of(dk[i]) != want {
+            ok = false;
+        }
+        i = i + 1;
+    }
+    return ok;
+}
+
+// Vectors from Python's hashlib.pbkdf2_hmac('sha256', ...), the first two being RFC 7914 / RFC 6070 style.
+pub fn test_one_iteration() -> [] int {
+    region a {
+        let dk = alloc_slice[a](32, byte_of(0));
+        test.assert_eq(auth.pbkdf2_sha256("password", "salt", 1, dk), 0);
+        test.assert(same(dk, "120fb6cffcf8b32c43e7225256c4f837a86548c92ccc35480805987cb70be17b"));
+    }
+    return 0;
+}
+
+pub fn test_two_iterations() -> [] int {
+    region a {
+        let dk = alloc_slice[a](32, byte_of(0));
+        auth.pbkdf2_sha256("password", "salt", 2, dk);
+        test.assert(same(dk, "ae4d0c95af6b46d32d0adff928f06dd02a303f8ef3c251dfd6e2d85a95474c43"));
+    }
+    return 0;
+}
+
+pub fn test_4096_iterations() -> [] int {
+    region a {
+        let dk = alloc_slice[a](32, byte_of(0));
+        auth.pbkdf2_sha256("password", "salt", 4096, dk);
+        test.assert(same(dk, "c5e478d59288c841aa530db6845c4c8d962893a001ce4e11a4963873aa98134a"));
+    }
+    return 0;
+}
+
+pub fn test_ten_thousand() -> [] int {
+    region a {
+        let dk = alloc_slice[a](32, byte_of(0));
+        auth.pbkdf2_sha256("hunter2", "0123456789abcdef", 10000, dk);
+        test.assert(same(dk, "5d5eb7b911f7fb3932f0ef843e4c6cd7f83f111307011ab3b68fdf46982dd803"));
+    }
+    return 0;
+}
+
+pub fn test_refuses_nonsense() -> [] int {
+    region a {
+        let dk = alloc_slice[a](32, byte_of(0));
+        let short = alloc_slice[a](8, byte_of(0));
+        test.assert_eq(auth.pbkdf2_sha256("p", "s", 0, dk), -1);
+        test.assert_eq(auth.pbkdf2_sha256("p", "s", 1, short), -1);
+    }
+    return 0;
+}
+
+// ---- the credential table --------------------------------------------------------------------------------------------
+
+fn alice() -> [] &static [byte] {
+    return "alice:pbkdf2-sha256$1000$00112233445566778899aabbccddeeff$588372775fb38b5711b6f36b465e293dc7b793e008550ee8a10bb26a8e7f85b8\n";
+}
+
+fn dev1() -> [] &static [byte] {
+    return "dev-1:sha256$00112233445566778899aabbccddeeff$d538bb836bbea3f4c7d861c803a0f3ff7a45f6a3affb70cecc859b6a77374ac2\n";
+}
+
+// Parse `text` into a fresh table of room for `room` users; answers the count, and leaves the reason in info[1].
+fn load[&t, &i](text: &t [byte], room: int, info: &!i [int]) -> [] int {
+    var n = 0;
+    region a {
+        let abuf = alloc_slice[a](room * 128, byte_of(0));
+        let ameta = alloc_slice[a](room * 3, 0);
+        n = auth.parse(text, abuf, ameta, room, info);
+    }
+    return n;
+}
+
+pub fn test_parses_both_schemes_and_blank_lines() -> [] int {
+    region a {
+        let info = alloc_slice[a](3, 0);
+        let text = alloc_slice[a](len(alice()) + len(dev1()) + 3, byte_of(10));
+        var n = 0;
+        while n < len(alice()) {
+            text[1 + n] = alice()[n];
+            n = n + 1;
+        }
+        var m = 0;
+        while m < len(dev1()) {
+            text[1 + n + 1 + m] = dev1()[m];
+            m = m + 1;
+        }
+        test.assert_eq(load(text, 4, info), 2);
+        test.assert_eq(info[2], 1000);
+    }
+    return 0;
+}
+
+pub fn test_lookup_cost_and_verify() -> [] int {
+    region a {
+        let info = alloc_slice[a](3, 0);
+        let text = alloc_slice[a](len(alice()) + len(dev1()), byte_of(0));
+        var n = 0;
+        while n < len(alice()) {
+            text[n] = alice()[n];
+            n = n + 1;
+        }
+        var m = 0;
+        while m < len(dev1()) {
+            text[n + m] = dev1()[m];
+            m = m + 1;
+        }
+        let abuf = alloc_slice[a](4 * 128, byte_of(0));
+        let ameta = alloc_slice[a](4 * 3, 0);
+        test.assert_eq(auth.parse(text, abuf, ameta, 4, info), 2);
+        let ia = auth.find(abuf, ameta, 2, "alice");
+        let id = auth.find(abuf, ameta, 2, "dev-1");
+        test.assert_eq(ia, 0);
+        test.assert_eq(id, 1);
+        test.assert_eq(auth.find(abuf, ameta, 2, "mallory"), -1);
+        test.assert_eq(auth.find(abuf, ameta, 2, "alic"), -1);
+        test.assert_eq(auth.cost(ameta, ia, 1000), 1000);
+        test.assert_eq(auth.cost(ameta, id, 1000), 1);
+        test.assert_eq(auth.cost(ameta, -1, 1000), 1000);
+        test.assert(auth.verify(abuf, ameta, ia, "secret", 1000));
+        test.assert(!auth.verify(abuf, ameta, ia, "Secret", 1000));
+        test.assert(!auth.verify(abuf, ameta, ia, "", 1000));
+        test.assert(auth.verify(abuf, ameta, id, "k3y", 1000));
+        test.assert(!auth.verify(abuf, ameta, id, "k3", 1000));
+        test.assert(!auth.verify(abuf, ameta, -1, "secret", 1000));
+    }
+    return 0;
+}
+
+// The reason a table is refused, and the line it is refused on.
+fn refused[&t](text: &t [byte], room: int, reason: int, line: int) -> [] int {
+    region a {
+        let info = alloc_slice[a](3, 0);
+        test.assert_eq(load(text, room, info), -1);
+        test.assert_eq(info[1], reason);
+        test.assert_eq(info[0], line);
+    }
+    return 0;
+}
+
+pub fn test_refuses_every_malformed_table() -> [] int {
+    let salt = "00112233445566778899aabbccddeeff";
+    let hash = "588372775fb38b5711b6f36b465e293dc7b793e008550ee8a10bb26a8e7f85b8";
+    refused("nocolon\n", 4, 9, 1);
+    refused(":sha256$00112233445566778899aabbccddeeff$588372775fb38b5711b6f36b465e293dc7b793e008550ee8a10bb26a8e7f85b8\n", 4, 3, 1);
+    refused("a:md5$00112233445566778899aabbccddeeff$588372775fb38b5711b6f36b465e293dc7b793e008550ee8a10bb26a8e7f85b8\n", 4, 4, 1);
+    refused("a:pbkdf2-sha256$0$00112233445566778899aabbccddeeff$588372775fb38b5711b6f36b465e293dc7b793e008550ee8a10bb26a8e7f85b8\n", 4, 5, 1);
+    refused("a:pbkdf2-sha256$1000001$00112233445566778899aabbccddeeff$588372775fb38b5711b6f36b465e293dc7b793e008550ee8a10bb26a8e7f85b8\n", 4, 5, 1);
+    refused("a:pbkdf2-sha256$x1$00112233445566778899aabbccddeeff$588372775fb38b5711b6f36b465e293dc7b793e008550ee8a10bb26a8e7f85b8\n", 4, 5, 1);
+    refused("a:sha256$0011$588372775fb38b5711b6f36b465e293dc7b793e008550ee8a10bb26a8e7f85b8\n", 4, 6, 1);
+    refused("a:sha256$00112233445566778899aabbccddeefz$588372775fb38b5711b6f36b465e293dc7b793e008550ee8a10bb26a8e7f85b8\n", 4, 6, 1);
+    refused("a:sha256$00112233445566778899AABBCCDDEEFF$588372775fb38b5711b6f36b465e293dc7b793e008550ee8a10bb26a8e7f85b8\n", 4, 6, 1);
+    refused("a:sha256$00112233445566778899aabbccddeeff$5883\n", 4, 7, 1);
+    refused("a:sha256$00112233445566778899aabbccddeeff$588372775fb38b5711b6f36b465e293dc7b793e008550ee8a10bb26a8e7f85b8$x\n", 4, 4, 1);
+    refused("a:sha256\n", 4, 6, 1);
+    // The second line is the bad one; a duplicate is the second occurrence.
+    refused("\nb:sha256$00112233445566778899aabbccddeeff$588372775fb38b5711b6f36b465e293dc7b793e008550ee8a10bb26a8e7f85b8\nb:sha256$00112233445566778899aabbccddeeff$588372775fb38b5711b6f36b465e293dc7b793e008550ee8a10bb26a8e7f85b8\n", 4, 8, 3);
+    // More users than room.
+    refused("a:sha256$00112233445566778899aabbccddeeff$588372775fb38b5711b6f36b465e293dc7b793e008550ee8a10bb26a8e7f85b8\nb:sha256$00112233445566778899aabbccddeeff$588372775fb38b5711b6f36b465e293dc7b793e008550ee8a10bb26a8e7f85b8\n", 1, 1, 2);
+    test.assert(len(salt) == 32);
+    test.assert(len(hash) == 64);
+    return 0;
+}
+
+pub fn test_refuses_a_long_line() -> [] int {
+    region a {
+        let text = alloc_slice[a](300, byte_of(120));
+        text[299] = byte_of(10);
+        let info = alloc_slice[a](3, 0);
+        test.assert_eq(load(text, 4, info), -1);
+        test.assert_eq(info[1], 2);
+    }
+    return 0;
+}
+
+pub fn test_an_empty_table_is_empty() -> [] int {
+    region a {
+        let info = alloc_slice[a](3, 0);
+        test.assert_eq(load("", 4, info), 0);
+        test.assert_eq(load("\n\r\n", 4, info), 0);
+    }
+    return 0;
+}
+
+pub fn test_carriage_returns_are_dropped() -> [] int {
+    region a {
+        let info = alloc_slice[a](3, 0);
+        let text = alloc_slice[a](len(dev1()) + 1, byte_of(13));
+        var m = 0;
+        while m < len(dev1()) - 1 {
+            text[m] = dev1()[m];
+            m = m + 1;
+        }
+        text[len(dev1()) - 1] = byte_of(13);
+        text[len(dev1())] = byte_of(10);
+        test.assert_eq(load(text, 2, info), 1);
+    }
+    return 0;
+}

@@ -32,3 +32,8 @@ std = true
 git = "https://github.com/alpibrusl/cancho-tools"
 rev = "8dab9176e521660333914dc768a80a29330a2a8e"
 path = ".cancho-vcs/toolbox.describe"
+
+[[test]]
+name = "auth"
+sources = ["src/auth.cho", "tests/auth_test.cho"]
+std = true

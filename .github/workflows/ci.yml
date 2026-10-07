@@ -63,6 +63,9 @@ jobs:
       - name: The README's and the page's examples are the program's output
         run: python3 scripts/site.py --check
 
+      - name: The side-by-side record with Mosquitto is what both brokers do
+        run: python3 scripts/side_by_side.py --check
+
       - name: The schema is generated, not edited
         run: python3 scripts/schemas.py --check
 

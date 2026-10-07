@@ -47,6 +47,7 @@ when a derived label, spelled with its argument, is not in `ceiling.toml` (gate 
 | `clock` | monotonic time for keepalive and timeouts (`clock_ms`) |
 | `signals("INT,TERM")`, `signals_read` | graceful stop, so the log stream can end with its `end` record (edition 6) |
 | `io_write`, `err_write` | the log stream, the introspect document, process-level errors |
+| `io_read` | **added with authentication (section 7c):** standard input, read once at start and only with `--auth stdin`, as the credential table; it reaches descriptor 0 and no file |
 
 **Corrected by measurement (issue #9):** an earlier draft wrote `net_in("<port>")`. The port is a command-line
 argument, so the compiler cannot know it and derives `net_in("")`, as `examples/api` does. The row says the broker may
@@ -58,8 +59,8 @@ be smaller than the ceiling, never larger. The skeleton in `src/main.cho` derive
 
 Never allowed, whatever `ceiling.toml` says (a list in `scripts/manifest.py`): `ffi` (TLS through OpenSSL, anything foreign;
 makes the report unbounded; **corrected, `docs/later.md`:** cancho now has a pure TLS 1.3 client with no `ffi`, but it is a client
-only, so a broker still has no TLS that avoids `ffi`), `net_out` (bridging), `io_read`, and every `fs`, `file` and `dir` label (persistence, logging to
-disk). `scripts/mutants.py` applies four mutations (a file read, a foreign call, a ceiling that lacks a label the
+only, so a broker still has no TLS that avoids `ffi`), `net_out` (bridging), and every `fs`, `file` and `dir` label (persistence, logging to
+disk). (**Corrected with authentication:** `io_read` was on this list; section 7c takes it off, deliberately, and the ceiling gained that exact label.) `scripts/mutants.py` applies five mutations (a file read, a foreign call, a ceiling that lacks a label the
 program uses, an embedded report that is not the compiler's) to a copy of the repository and requires the gate to
 refuse each; all four are refused.
 
@@ -110,6 +111,8 @@ and fails if a default or ceiling here differs from what `mqtt introspect` repor
 | QoS 1 and 2 in-flight window per session (outbound) | `inflight` | 16 | 64 | (queues behind the window) |
 | QoS 2 messages received and not yet released, per session | `qos2-inbound` | 16 | 1,024 | `limit.qos2-inbound` |
 | Seconds between `$SYS` updates (0 for none) | `sys-interval` | 10 | 86,400 | (none) |
+| Users a credential table may hold (design section 7c) | `auth-users` | 1,024 | 16,384 | `auth.credentials-invalid` at start |
+| Iterations of password hashing in one second (section 7c) | `auth-budget` | 200,000 | 100,000,000 | `limit.auth-budget` |
 | Offline sessions kept (clean-session = 0) | `offline-sessions` | 256 | 16,384 | `limit.offline-sessions` |
 | Retained messages | `retained-messages` | 1,024 | 65,536 | `limit.retained` |
 | Bytes of one retained message, topic included | `retained-slot-bytes` | 1,024 | 262,144 | `limit.retained` |
@@ -408,6 +411,51 @@ counter array that already exists, an increment each; a tick of seventeen small 
 `sys-interval`; a table of static names. Nothing grows with the number of connections. **Not measured:** the per-increment cost on the
 fan-out path; `docs/benchmark.md` is re-run after this if the cost is visible.
 
+## 7c. Authentication
+
+*Added after v1 (the second item of `docs/later.md`'s order). Written before the broker code; **built after it, with the corrections marked below**. Choices are marked as choices; the maintainer's to change.*
+
+**Scope.** Authentication at CONNECT: who the client is. Not authorisation (which topics it may use), not client certificates (they wait on cancho's TLS step 4, `docs/later.md`), not enhanced authentication (MQTT 5). With authentication off, the user name and password fields are decoded and ignored, as now.
+
+**1. Credential source: standard input, once, at start (choice).** `--auth stdin` (a `choice` flag, `off` by default, so a later `file` or `cert` is a value and not a new flag). The broker reads the credential table from file descriptor 0 until end of input, before it listens, and never again.
+*Why not a file.* A file path is the shape `docs/later.md` first expected, and it was checked against the compiler: `narrow` takes a literal (`docs/filesystem.md` section 2), so the path is fixed when the program is compiled, which does not fit a prebuilt binary, and the label (`fs_read("/etc/...")`) lets the program read a whole directory. *Why not a flag:* the value would be in `ps` and in `introspect`. Standard input costs one label, `io_read`, which can read descriptor 0 and nothing else, so the report keeps saying "this program cannot read a file". It is what a supervisor already gives a process: `StandardInput=file:/etc/cancho-mqtt/passwd` in systemd, `docker run -i ... < passwd`. **The cost:** no reload without a restart (the poller does not watch files; a reload on `SIGHUP` would need the descriptor to stay open and readable, which a pipe does not allow), and a restart drops every connection. **`io_read` is on the "never allowed" list of `scripts/manifest.py` today; this feature removes it from that list**, adds the row `io_read` (the credential table, read once at start, only with `--auth stdin`) to section 2, and `ceiling.toml` grows by that exact label. The four authority mutants still apply and a fifth, `ceiling lacks io_read`, shows the new row is checked; the `file_read` mutant still shows that a file is refused.
+
+**2. The table (choice).** One user per line, `name:scheme`, two schemes:
+
+* `pbkdf2-sha256$<iterations>$<salt>$<hash>`: for passwords a person chose.
+* `sha256$<salt>$<hash>`: for secrets a program generated with at least 128 random bits (device keys). One hash, microseconds. The broker cannot tell the two cases apart; using it for a guessable password is the operator's mistake and the document says so.
+
+Salt and hash are lowercase hex (no decoder beyond hex is needed); salt 8 to 32 bytes, hash 32. Bounds, each with a flag where it is a limit: user name 1 to 64 bytes without `:` or a control byte, a line at most 256 bytes, `--auth-users` records (default 1,024, ceiling 16,384: a duplicate check at start is quadratic in the users), iterations 1 to 1,000,000. A table that breaks a bound, a duplicate name or a malformed line **refuses to start** with a process error carrying the rule `auth.credentials-invalid`, the line number and the reason, never the line's content. The table is memory sized at start (about 150 bytes a record).
+The file is made by `scripts/passwd.py`, **not by the broker**: the broker has no randomness and no file access, and a generator that needs both belongs outside it. The script reads the password from a terminal or standard input, never from `argv`, and uses `hashlib.pbkdf2_hmac` and `os.urandom`. A test checks that the broker's hash and the script's agree.
+
+**3. At CONNECT, with authentication on (before any session effect).**
+
+| Client sent | Reply | Rule |
+|---|---|---|
+| no user name | CONNACK 5 (not authorised), close | `auth.required` |
+| unknown user, or wrong password | CONNACK 4 (bad user name or password), close | `auth.bad-credentials` |
+| over the cost budget (item 5) | CONNACK 3 (server unavailable), close | `limit.auth-budget` |
+
+The check runs before takeover, will handling, session lookup or any change to a table: a client that fails authentication cannot take over, disconnect, or fire anyone's will. An unknown user costs the same work as a known one (a dummy hash at the table's highest iteration count) and the same reply, so neither time nor reply says which names exist. **Measured against Mosquitto 2.0.18 (`tests/conformance/test_auth_differential.py`):** it answers CONNACK 5 to every login it does not accept (no user name, a wrong password, an unknown user, no password, an empty one) and never 4. MQTT 3.1.1 (3.2.2.3) names code 4 for those, so this broker answers 4 for all but the missing user name; the difference is written down in the test and asserted both ways. What agrees: a right login is accepted, every refused one is closed, and a refused login with a live session's client identifier takes nothing over and fires no will. The comparison of hashes does not stop at the first differing byte. The user name is **never logged**: a mistyped password is often in that field. A refusal logs the rule and, as for every refusal before a session exists, no client identifier (`null`). Three connection rules are added (31 in all).
+
+**4. Cost, measured.** PBKDF2-HMAC-SHA-256 in `src/auth.cho` agrees with `hashlib.pbkdf2_hmac` on four vectors (1, 2, 4,096 and 10,000 iterations). A native binary does 100,000 iterations in 135 ms (three runs 130 to 139 ms), **1.35 ms per thousand; OpenSSL, through Python, 0.25 ms** on the same machine, so five times slower. The broker has one thread, so **every login stalls every connection** for that long: 13.5 ms at 10,000 iterations. For comparison, `mosquitto_passwd` 2.0.18 writes `$7$101$...`, PBKDF2-SHA-512 with 101 iterations. The generator's default is 10,000 (choice): about a hundred times Mosquitto's, and far below the 600,000 or so that current guidance for PBKDF2-SHA-256 names (from memory; not checked here). A broker on one thread cannot afford more, so **a stolen table is cheaper to crack offline here than a table made by guidance's number**. The honest answer is the second scheme: a random 128-bit secret is not guessable, and one hash is enough.
+
+**5. A budget, so that logins cannot starve the broker (choice).** `--auth-budget` (default 200,000, ceiling 100,000,000): iterations of work the broker will do in any one second; a `sha256` record costs 1. Fixed one-second windows. Over it, the client is refused with `limit.auth-budget` and may retry. At the default the worst case is about 27 percent of one core spent hashing (measured rate above). **What this does and does not do:** it bounds the stall; it does **not** stop an attacker who sends bad passwords from using the whole budget and so denying password logins to everyone (key-based `sha256` records are one unit each and mostly still get through). It is a limit on harm, not a defence. There is no per-source limit: whether the accept path exposes the peer address has **not been checked**, and none is designed here. **Measured against the built broker** (one Python client at a time, then 200 at once, each refused client retrying every 250 ms; one machine, idle, the numbers are the order of magnitude and not a benchmark):
+
+| Login | Accepted a second |
+|---|---|
+| `pbkdf2-sha256`, 10,000 iterations, default budget | 22 (86 accepted and 27,706 refused with CONNACK 3 in 4 s: the budget holds, and refusals are cheap) |
+| the same with the budget lifted | 70 (14.2 ms each, as section 4's 13.5 ms predicted) |
+| `sha256` key | about 9,500 (the Python client is probably the limit) |
+| storm of 200 `pbkdf2-sha256` clients, default budget | all admitted in 9.2 s, 14 attempts each on average; the broker answered 27,000 refusals in 4 s without stalling |
+| storm of 200 `sha256` key clients | all admitted in 0.1 s on the first attempt |
+
+So 1,000 password clients reconnecting together take about 45 s to admit at the default budget (the 200-client run extrapolated, **not run**), and the same fleet on device keys takes well under a second: the figure that decides which scheme a fleet should use.
+
+**6. What is not done, and said so.** Authorisation (an ACL would add a lookup per PUBLISH and per SUBSCRIBE filter; its cost against the fan-out is unmeasured). Reload. Client certificates. A hash stronger than PBKDF2 (`std` has none, and a memory-hard function would also need memory the tables do not have). Password change without restart.
+
+**7. Tests this section commits to.** Unit: the hash (built), the table parser (every bound and malformed line). Protocol: every row of the table above; that a failed login cannot take over a session; that a good login with an unknown user name differs in nothing visible from a bad password. Rules: a fixture for each new rule. Differential: the same users file under Mosquitto 2.0.18 (`password_file`, `allow_anonymous false`); the codes and what follows each are compared, and a difference is written down and asserted (above). Fuzz: CONNECT with random user and password fields. CLI and `introspect`: the new flags and the `auth.credentials-invalid` error with its schema and fixture. Authority: the `io_read` row and the new mutant. Benchmark: with authentication off the numbers must not move; with it on, logins a second at the default budget.
+
 ## 8. Retained messages
 
 A retained PUBLISH replaces the stored message for its topic; an empty retained payload clears it (3.3.1-6, 3.3.1-10).
@@ -435,7 +483,7 @@ mutant is not a gate.
 |---|---|---|---|
 | G1 | codec (#3) | 1,000+ generated and fuzzed packets decode identically to a Python oracle; one byte at a time decodes the same as whole | mutant that skips the remaining-length bound |
 | G2 | topics (#4) | trie matching equals a Python reference over generated filters and topics, including every wildcard edge, `$`, empty levels | mutant that lets `#` match mid-filter |
-| G3 | conformance (#10) | every normative statement in the coverage table has a test naming it; differential scenarios against Mosquitto agree on what each client observes | removing a test fails the table check |
+| G3 | conformance (#10) | every normative statement in the coverage table has a test naming it; differential scenarios against Mosquitto agree on what each client observes; `docs/side-by-side.md` is regenerated from both brokers (`scripts/side_by_side.py --check`) | removing a test fails the table check |
 | G4 | authority (#9) | `cancho authority` labels are a subset of the ceiling; no foreign symbol; bounded | a mutant adding `file_write` |
 | G5 | fan-out (#6) | stalled subscriber leaves RSS flat; ordering per subscriber; no delivery to non-matching; 1,000 subscribers; peak RSS reported | mutant that removes the queue bound |
 | G6 | memory (#8, #11) | RSS after a 10-minute churn run is within the printed budget plus a fixed overhead recorded in the first run | mutant that leaks a session on takeover |

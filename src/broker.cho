@@ -12,6 +12,7 @@ edition 5;
 module mqtt.broker;
 
 import std.conns;
+import mqtt.auth;
 import mqtt.config;
 import mqtt.rules;
 import mqtt.sys;
@@ -30,12 +31,13 @@ pub res struct Broker {
 // A broker for connections on `listener` (already listening and non-blocking),
 // waited on through `poller`, which it owns from now on. `cfg` is indexed by
 // `config.i_*`.
-pub fn open[&h, &l, &g](heap: &!h Heap, poller: Poller, listener: &!l Listener, cfg: &g [int]) -> [heap] Broker {
+// `abuf`, `ameta`, `ausers` and `adummy` are the credential table `mqtt.auth.parse` made (empty when authentication is off).
+pub fn open[&h, &l, &g](heap: &!h Heap, poller: Poller, listener: &!l Listener, cfg: &g [int], abuf: Box[[byte]], ameta: Box[[int]], ausers: int, adummy: int) -> [heap] Broker {
     var p = poller;
     borrow mut p as &!pw in {
         poller_add_listener(pw, listener, 0);
     }
-    return Broker { tab: conns.empty(heap, 64), core: tables.open(heap, p, cfg) };
+    return Broker { tab: conns.empty(heap, 64), core: tables.open(heap, p, cfg, abuf, ameta, ausers, adummy) };
 }
 
 pub fn close[&h](heap: &!h Heap, b: Broker) -> [heap] int {
@@ -546,6 +548,34 @@ fn refuse_connect[&t, &c](tab: &!t conns.Table, core: &!c tables.Core, k: int, r
     return 1;
 }
 
+// Authentication (design section 7c): -1 when the CONNECT in `pkt` may go on, or the rule that refuses it. Nothing here
+// changes a session. An unknown user pays the cost of the dearest record, so neither the time nor the reply says which
+// names exist; the work is counted against the budget of this second before it is done.
+fn login[&c, &t, &p](core: &!c tables.Core, ct: &t [int], pkt: &p [byte]) -> [] int {
+    if ct[1] >> 7 & 1 == 0 {
+        return rules.auth_required();
+    }
+    let name = pkt[ct[9]..ct[9] + ct[10]];
+    let secret = pkt[ct[11]..ct[11] + ct[12]];
+    let table = contents(core.abuf);
+    let meta = contents(core.ameta);
+    let idx = auth.find(table, meta, core.ausers, name);
+    let cost = auth.cost(meta, idx, core.adummy);
+    if core.awin != core.now {
+        core.awin = core.now;
+        core.aspent = 0;
+    }
+    // The first login of a second is always done, so a record dearer than the whole budget can still log in.
+    if core.aspent > 0 && core.aspent + cost > core.abudget {
+        return rules.auth_budget();
+    }
+    core.aspent = core.aspent + cost;
+    if auth.verify(table, meta, idx, secret, core.adummy) {
+        return 0 - 1;
+    }
+    return rules.auth_bad_credentials();
+}
+
 // The CONNECT in `pkt` on connection `k`. Answers 1 if the connection was closed.
 fn handle_connect[&t, &c, &p](tab: &!t conns.Table, core: &!c tables.Core, k: int, pkt: &p [byte]) -> [conn_write] int {
     let ct = contents(core.ct);
@@ -574,6 +604,18 @@ fn handle_connect[&t, &c, &p](tab: &!t conns.Table, core: &!c tables.Core, k: in
     }
     if will == 1 && ct[6] + ct[8] > core.will_max {
         return refuse_connect(tab, core, k, rules.will_size(), 3);
+    }
+    if core.aon == 1 {
+        let denied = login(core, ct, pkt);
+        if denied >= 0 {
+            var code = 4;
+            if denied == rules.auth_required() {
+                code = 5;
+            } else if denied == rules.auth_budget() {
+                code = 3;
+            }
+            return refuse_connect(tab, core, k, denied, code);
+        }
     }
     let cd = contents(core.cs);
     let sd = contents(core.ss);
