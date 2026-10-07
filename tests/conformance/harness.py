@@ -26,14 +26,27 @@ def free_port():
     return port
 
 
+def _no_thp():
+    import ctypes
+    try:
+        ctypes.CDLL(None, use_errno=True).prctl(41, 1, 0, 0, 0)     # PR_SET_THP_DISABLE
+    except Exception:
+        pass
+
+
 class Broker:
     """`mqtt serve` as a child process; its standard output is the log."""
 
-    def __init__(self, *flags, port=None):
+    def __init__(self, *flags, port=None, no_thp=False):
+        """`no_thp`: run the broker with transparent huge pages off (PR_SET_THP_DISABLE), for the
+        tests that measure resident size: with THP `always` (the CI runners') the first touch of
+        a 2 MiB-aligned part of a large table makes the whole 2 MiB resident, so a table that is
+        only touched lazily still grows in 2 MiB steps, at moments the workload does not choose."""
         self.port = port or free_port()
         self.flags = list(flags)
         self.proc = subprocess.Popen([BINARY, "serve", "--port", str(self.port), *self.flags],
-                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                     preexec_fn=_no_thp if no_thp else None)
         self.lines = []
         self._buf = b""
         os.set_blocking(self.proc.stdout.fileno(), False)

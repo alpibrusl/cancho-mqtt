@@ -136,6 +136,9 @@ with the default bounds, against 73 MiB of tables) and a full one is no larger t
 (an input buffer and a queue buffer are attached to a connection or session only while they hold something, so an idle connection costs about 0.3 KiB resident, see `docs/benchmark.md`) (`test_memory.py` asserts both, and that the resident size after 6,000 rounds of connects, sessions, subscriptions,
 retained messages, wills and refusals is within 1 MiB of what it was after a warm-up). The claim is that memory has a
 ceiling stated at start, not that all of it is touched at start.
+That holds with 4 KiB pages. With transparent huge pages set to `always` the operating system makes a whole 2 MiB region resident on
+the first touch of any byte in it, so resident size grows in 2 MiB steps (still never past `memory_bytes`); found on CI, where a
+resident-size test grew by one huge page late in its run. The memory tests therefore run the broker with THP disabled for the process.
 
 ## 5. Rules: every refusal has a tag and a defined action
 

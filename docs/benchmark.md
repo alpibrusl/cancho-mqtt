@@ -131,6 +131,13 @@ recently freed slot is reused first, so the pages touched follow what is in flig
 pools are as large as the old slabs, so the bounds and `memory_bytes` are unchanged. Throughput did not move (QoS 1 one core 199k/s
 before and after; QoS 0 is generator-limited both times).
 
+**Transparent huge pages change the unit.** The figures here were measured with THP set to `madvise`, where a table that is touched
+lazily is resident by 4 KiB pages. With THP `always` (the CI runners' setting, found when a resident-size test there grew by exactly one
+2 MiB huge page late in its run) the first touch of a 2 MiB-aligned part of a table makes all of it resident, so memory then grows in 2 MiB
+steps at moments the workload does not choose, up to the `memory_bytes` the `listening` record states. The per-connection figures above
+are therefore for THP `madvise` or `never`; **not measured** under `always`. The memory tests run the broker with THP off for the same
+reason (`Broker(no_thp=True)`).
+
 **What it does not do.** A broker with thousands of connections that all have a queued message, or all a split packet, at the
 same moment touches as many pages as before; and resident size never shrinks, so a burst's pages stay. That is the same
 behaviour as the tables elsewhere in the broker, and the bound is still `memory_bytes`.

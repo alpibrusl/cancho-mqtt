@@ -111,7 +111,7 @@ def churn(port, rng, rounds):
 class Memory(unittest.TestCase):
     def test_resident_size_is_flat_under_churn(self):
         with Broker("--offline-sessions", "32", "--retained-messages", "64", "--subscriptions-total", "512",
-                    "--max-nodes", "512") as broker:
+                    "--max-nodes", "512", no_thp=True) as broker:
             rng = random.Random(7)
             churn(broker.port, rng, 2500)      # warm up: first use of each path, and the allocator's first growth
             time.sleep(0.5)
@@ -138,7 +138,7 @@ class Memory(unittest.TestCase):
         # A connection's input and queue buffers are attached only while something is in
         # them, so a connected, subscribed, idle client touches no page of its own. (They
         # were fixed per-connection slabs, 8.3 KiB each, until this was measured.)
-        with Broker("--max-connections", "4096", "--stats-seconds", "0") as broker:
+        with Broker("--max-connections", "4096", "--stats-seconds", "0", no_thp=True) as broker:
             clients = []
 
             def add(n):
@@ -184,7 +184,7 @@ class Memory(unittest.TestCase):
         # they are used, so an idle broker is small and a full one is not larger than the
         # `memory_bytes` the log states plus the program itself.
         with Broker("--max-connections", "256", "--queue-bytes", "17000", "--max-packet", "4096",
-                    "--offline-sessions", "16") as broker:
+                    "--offline-sessions", "16", no_thp=True) as broker:
             estimate = [r for r in broker.lines if r["type"] == "listening"][0]["memory_bytes"]
             idle = rss_kib(broker.proc.pid) * 1024
             self.assertLess(idle, estimate)
