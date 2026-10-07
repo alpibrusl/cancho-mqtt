@@ -62,68 +62,64 @@ pub fn packet_id() -> [] int {
     return 12;
 }
 
-pub fn qos2_publish() -> [] int {
+pub fn qos3() -> [] int {
     return 13;
 }
 
-pub fn qos2_packet() -> [] int {
+pub fn subs_per_client() -> [] int {
     return 14;
 }
 
-pub fn qos3() -> [] int {
+pub fn subs_total() -> [] int {
     return 15;
 }
 
-pub fn subs_per_client() -> [] int {
+pub fn connections() -> [] int {
     return 16;
 }
 
-pub fn subs_total() -> [] int {
+pub fn keepalive() -> [] int {
     return 17;
 }
 
-pub fn connections() -> [] int {
+pub fn write_stalled() -> [] int {
     return 18;
 }
 
-pub fn keepalive() -> [] int {
+pub fn queue() -> [] int {
     return 19;
 }
 
-pub fn write_stalled() -> [] int {
+pub fn retained() -> [] int {
     return 20;
 }
 
-pub fn queue() -> [] int {
+pub fn offline_sessions() -> [] int {
     return 21;
 }
 
-pub fn retained() -> [] int {
+pub fn unexpected_packet() -> [] int {
     return 22;
 }
 
-pub fn offline_sessions() -> [] int {
+pub fn topic_level() -> [] int {
     return 23;
 }
 
-pub fn unexpected_packet() -> [] int {
+pub fn will_size() -> [] int {
     return 24;
 }
 
-pub fn topic_level() -> [] int {
+pub fn output_full() -> [] int {
     return 25;
 }
 
-pub fn will_size() -> [] int {
+pub fn qos2_inbound() -> [] int {
     return 26;
 }
 
-pub fn output_full() -> [] int {
-    return 27;
-}
-
 pub fn count() -> [] int {
-    return 28;
+    return 27;
 }
 
 // The tag of rule `i`.
@@ -168,48 +164,45 @@ pub fn tag(i: int) -> [] &static [byte] {
         return "protocol.packet-id";
     }
     if i == 13 {
-        return "unsupported.qos2-publish";
-    }
-    if i == 14 {
-        return "unsupported.qos2-packet";
-    }
-    if i == 15 {
         return "protocol.qos3";
     }
-    if i == 16 {
+    if i == 14 {
         return "limit.subscriptions-per-client";
     }
-    if i == 17 {
+    if i == 15 {
         return "limit.subscriptions-total";
     }
-    if i == 18 {
+    if i == 16 {
         return "limit.connections";
     }
-    if i == 19 {
+    if i == 17 {
         return "timeout.keepalive";
     }
-    if i == 20 {
+    if i == 18 {
         return "timeout.write-stalled";
     }
-    if i == 21 {
+    if i == 19 {
         return "limit.queue";
     }
-    if i == 22 {
+    if i == 20 {
         return "limit.retained";
     }
-    if i == 23 {
+    if i == 21 {
         return "limit.offline-sessions";
     }
-    if i == 24 {
+    if i == 22 {
         return "protocol.unexpected-packet";
     }
-    if i == 25 {
+    if i == 23 {
         return "limit.topic-level";
     }
-    if i == 26 {
+    if i == 24 {
         return "limit.will-size";
     }
-    return "limit.output-full";
+    if i == 25 {
+        return "limit.output-full";
+    }
+    return "limit.qos2-inbound";
 }
 
 // What the broker does when the rule fires, for `introspect`'s `connection_rules`.
@@ -220,22 +213,22 @@ pub fn action(i: int) -> [] &static [byte] {
     if i == 5 {
         return "CONNACK 0x02, then close";
     }
-    if i == 11 || i == 16 || i == 17 || i == 25 {
+    if i == 11 || i == 14 || i == 15 || i == 23 {
         return "SUBACK 0x80 for that filter";
     }
-    if i == 21 {
-        return "drop the message for that subscriber";
-    }
-    if i == 22 {
-        return "deliver live, do not retain";
-    }
-    if i == 23 {
-        return "evict the oldest offline session";
-    }
-    if i == 18 {
+    if i == 16 {
         return "close at accept";
     }
-    if i == 26 {
+    if i == 19 {
+        return "drop the message for that subscriber";
+    }
+    if i == 20 {
+        return "deliver live, do not retain";
+    }
+    if i == 21 {
+        return "evict the oldest offline session";
+    }
+    if i == 24 {
         return "CONNACK 0x03, then close";
     }
     return "close";
@@ -275,9 +268,6 @@ pub fn of_wire(code: int) -> [] int {
     }
     if code == wire.e_unexpected() {
         return unexpected_packet();
-    }
-    if code == wire.e_qos2() {
-        return qos2_packet();
     }
     return 0 - 1;
 }

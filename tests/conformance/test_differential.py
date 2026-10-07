@@ -22,7 +22,8 @@ import time
 import unittest
 
 from harness import (Broker, Client, Closed, DISCONNECT, PINGREQ, connect_packet, free_port, puback_packet,
-                     publish_packet, subscribe_packet, unsubscribe_packet)
+                     pubcomp_packet, publish_packet, pubrec_packet, pubrel_packet, subscribe_packet,
+                     unsubscribe_packet)
 
 MOSQUITTO = shutil.which("mosquitto")
 
@@ -82,19 +83,30 @@ class Run:
                 self.history[name].append(("pub", topic, body[at:], qos, bool(flags & 1)))
                 if qos == 1:
                     client.send(puback_packet(pid))
+                elif qos == 2:
+                    client.send(pubrec_packet(pid))
+            elif k == 6:
+                # The PUBREL of a QoS 2 delivery: finish it.
+                client.send(pubcomp_packet(int.from_bytes(body, "big")))
             elif k == want:
                 return body
             else:
                 raise AssertionError("unexpected packet type %d" % k)
 
     def sync(self):
-        for name, client in list(self.live.items()):
-            client.send(PINGREQ)
-            try:
-                self._collect(name, client, 13)
-            except (Closed, TimeoutError):
-                self.live.pop(name)
-                self.history[name].append(("closed",))
+        # Two round trips: a QoS 2 delivery is PUBLISH, PUBREC, PUBREL, PUBCOMP, and the
+        # PUBREL follows the PUBREC, so the second PINGRESP is behind every packet a first
+        # round caused. Without it a scenario could close a connection with a PUBREL still on
+        # its way, and Mosquitto's will handling then differs from run to run (seen: the will of
+        # a persistent session delivered to its own reconnection in some runs and not others).
+        for _ in range(2):
+            for name, client in list(self.live.items()):
+                client.send(PINGREQ)
+                try:
+                    self._collect(name, client, 13)
+                except (Closed, TimeoutError):
+                    self.live.pop(name)
+                    self.history[name].append(("closed",))
 
     def connect(self, name, clean, will=None):
         if name in self.live:
@@ -128,6 +140,23 @@ class Run:
         c.send(publish_packet(topic, payload, qos=qos, retain=retain, pid=9))
         if qos == 1:
             self._collect(name, c, 4)
+        elif qos == 2:
+            self._collect(name, c, 5)
+            c.send(pubrel_packet(9))
+            self._collect(name, c, 7)
+        self.sync()
+
+    def begin2(self, name, topic, payload, dup):
+        """A QoS 2 PUBLISH, answered by PUBREC and not yet released."""
+        c = self.live[name]
+        c.send(publish_packet(topic, payload, qos=2, pid=9, dup=dup))
+        self._collect(name, c, 5)
+        self.sync()
+
+    def release2(self, name):
+        c = self.live[name]
+        c.send(pubrel_packet(9))
+        self._collect(name, c, 7)
         self.sync()
 
     def disconnect(self, name, clean):
@@ -171,6 +200,10 @@ def apply(run, op):
         run.publish(*op[1:])
     elif kind == "disconnect":
         run.disconnect(op[1], op[2])
+    elif kind == "begin2":
+        run.begin2(*op[1:])
+    elif kind == "release2":
+        run.release2(op[1])
     else:
         raise ValueError(kind)
 
@@ -182,7 +215,7 @@ def generate(seed, length=30):
     # One subscription QoS per client for the whole scenario: where one client's
     # overlapping filters have different QoS, the two brokers differ on purpose
     # (KNOWN_DIFFERENCES below), and a generated scenario should test the rest.
-    sub_qos = {n: rng.randrange(2) for n in NAMES}
+    sub_qos = {n: rng.randrange(3) for n in NAMES}
     for _ in range(length):
         name = rng.choice(NAMES)
         r = rng.random()
@@ -197,7 +230,7 @@ def generate(seed, length=30):
         elif r < 0.38:
             ops.append(("unsubscribe", name, [rng.choice(FILTERS)]))
         elif r < 0.85:
-            ops.append(("publish", name, rng.choice(TOPICS), b"m%d" % rng.randrange(1000), rng.randrange(2),
+            ops.append(("publish", name, rng.choice(TOPICS), b"m%d" % rng.randrange(1000), rng.randrange(3),
                         rng.random() < 0.25))
         else:
             ops.append(("disconnect", name, rng.random() < 0.5))
@@ -240,6 +273,29 @@ SCRIPTS = {
         ("connect", "A", True, ("w", b"abrupt", 1, False)), ("disconnect", "A", False),
         ("connect", "A", True, ("w", b"clean", 1, False)), ("disconnect", "A", True),
     ],
+    "qos2 fan-out and downgrade": [
+        ("connect", "A", True), ("connect", "B", True), ("connect", "C", True),
+        ("subscribe", "A", [("q/#", 2)]), ("subscribe", "B", [("q/#", 1)]), ("subscribe", "C", [("q/+", 0)]),
+        ("publish", "C", "q/x", b"two", 2, False), ("publish", "C", "q/x", b"one", 1, False),
+        ("publish", "C", "q/x", b"zero", 0, False),
+    ],
+    "qos2 retained": [
+        ("connect", "A", True), ("publish", "A", "r/a", b"kept", 2, True),
+        ("connect", "B", True), ("subscribe", "B", [("r/#", 2)]),
+        ("connect", "C", True), ("subscribe", "C", [("r/#", 1)]),
+        ("publish", "A", "r/a", b"", 2, True), ("disconnect", "C", True), ("connect", "C", True),
+        ("subscribe", "C", [("r/#", 2)]),
+    ],
+    "qos2 to a persistent session": [
+        ("connect", "A", False), ("subscribe", "A", [("p/#", 2)]), ("disconnect", "A", True),
+        ("connect", "B", True), ("publish", "B", "p/x", b"queued", 2, False), ("publish", "B", "p/y", b"one", 1, False),
+        ("connect", "A", False), ("disconnect", "A", False), ("connect", "A", True),
+    ],
+    "a resent qos2 publish is routed once": [
+        ("connect", "A", True), ("connect", "B", True), ("subscribe", "B", [("t", 2)]),
+        ("begin2", "A", "t", b"once", False), ("begin2", "A", "t", b"once", True), ("release2", "A"),
+        ("begin2", "A", "t", b"twice", False), ("release2", "A"),
+    ],
     "takeover": [
         ("connect", "A", True, ("w", b"never", 0, False)), ("subscribe", "A", [("t", 0)]),
         ("connect", "B", True), ("subscribe", "B", [("w", 0)]),
@@ -262,11 +318,14 @@ KNOWN_DIFFERENCES = {
         {"A": [("connack", 0, 0), ("suback", (0, 1)), ("pub", "a/b", b"x", 1, False)], "B": [("connack", 0, 0)]},
         {"A": [("connack", 0, 0), ("suback", (0, 1)), ("pub", "a/b", b"x", 0, False)], "B": [("connack", 0, 0)]},
     ),
-    # A SUBSCRIBE at QoS 2 is granted QoS 2 by Mosquitto and QoS 1 here (3.8.4 allows a lower grant).
-    "subscribe at QoS 2": (
-        [("connect", "A", True), ("subscribe", "A", [("t", 2)])],
-        {"A": [("connack", 0, 0), ("suback", (1,))]},
-        {"A": [("connack", 0, 0), ("suback", (2,))]},
+    # Method A (design section 7a): this broker routes a QoS 2 message when its PUBLISH arrives
+    # and remembers the identifier until PUBREL; Mosquitto holds the message until PUBREL
+    # (method B), so a subscriber sees it only after the release. 4.3.3 allows both.
+    "qos2 delivery before PUBREL": (
+        [("connect", "A", True), ("connect", "B", True), ("subscribe", "B", [("t", 2)]),
+         ("begin2", "A", "t", b"early", False)],
+        {"A": [("connack", 0, 0)], "B": [("connack", 0, 0), ("suback", (2,)), ("pub", "t", b"early", 2, False)]},
+        {"A": [("connack", 0, 0)], "B": [("connack", 0, 0), ("suback", (2,))]},
     ),
 }
 

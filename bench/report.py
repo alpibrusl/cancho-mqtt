@@ -38,12 +38,13 @@ def mem(b, cores, key):
 
 for cores in (1, 2):
     print("### %d core%s\n" % (cores, "" if cores == 1 else "s"))
-    print("| Broker | Paced QoS 0 (20k/s offered), delivered/s | Saturated QoS 0, delivered/s | Saturated QoS 1, delivered/s |")
-    print("|---|---:|---:|---:|")
+    print("| Broker | Paced QoS 0 (20k/s offered), delivered/s | Saturated QoS 0, delivered/s | Saturated QoS 1, delivered/s | Saturated QoS 2, delivered/s |")
+    print("|---|---:|---:|---:|---:|")
     for b, name in ORDER:
-        print("| %s | %s | %s | %s |" % (name, spread(b, cores, "fanout_qos0_paced", "delivered_per_s"),
+        print("| %s | %s | %s | %s | %s |" % (name, spread(b, cores, "fanout_qos0_paced", "delivered_per_s"),
                                        spread(b, cores, "fanout_qos0", "delivered_per_s", 1000, "%.0fk"),
-                                       spread(b, cores, "fanout_qos1", "delivered_per_s", 1000, "%.1fk")))
+                                       spread(b, cores, "fanout_qos1", "delivered_per_s", 1000, "%.1fk"),
+                                       spread(b, cores, "fanout_qos2", "delivered_per_s", 1000, "%.1fk")))
     print()
     print("| Broker | Latency p50 / p99 / p99.9 µs, 0 idle connections | same, 1,000 idle | Memory MiB: idle / 1,000 / 5,000 connections | 5,000 connected |")
     print("|---|---|---|---|---:|")

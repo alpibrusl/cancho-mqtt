@@ -43,6 +43,7 @@ pub fn test_indices_name_their_flags() -> [] int {
     test.assert(bytes.equal(bytes.field(bytes.field(table, 59, config.i_connect_timeout() + 1), 124, 1), "connect-timeout"));
     test.assert(bytes.equal(bytes.field(bytes.field(table, 59, config.i_write_stall() + 1), 124, 1), "write-stall"));
     test.assert(bytes.equal(bytes.field(bytes.field(table, 59, config.i_stats() + 1), 124, 1), "stats-seconds"));
+    test.assert(bytes.equal(bytes.field(bytes.field(table, 59, config.i_qos2_inbound() + 1), 124, 1), "qos2-inbound"));
     test.assert(bytes.equal(bytes.field(bytes.field(table, 59, config.i_format() + 1), 124, 1), "format"));
     return 0;
 }

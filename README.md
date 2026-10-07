@@ -13,11 +13,12 @@ build/mqtt skill                              # the same as an agentskills.io SK
 build/mqtt rules                              # every connection-level rule and what the broker does
 ```
 
-**In v1:** CONNECT/CONNACK, keep-alive, clean and persistent sessions, will messages, SUBSCRIBE with `+` and `#`,
-PUBLISH at QoS 0 and 1 (in-flight window, DUP redelivery), retained messages, bounded per-session queues, every bound a
-flag with a stated ceiling. **Not in v1:** QoS 2, persistence across restarts, TLS (it needs foreign code and would make the
-authority report unbounded), authentication, MQTT 5, websockets, `$SYS`, clustering ([docs/design.md](docs/design.md)
-section 1, issue #13).
+**Implemented:** CONNECT/CONNACK, keep-alive, clean and persistent sessions, will messages, SUBSCRIBE with `+` and `#`,
+PUBLISH at QoS 0, 1 and 2 (in-flight window, DUP redelivery; QoS 2 delivers an inbound message when its PUBLISH arrives, not
+when its PUBREL does, which 3.1.1 allows and Mosquitto does the other way: [design section 7a](docs/design.md)), retained
+messages, bounded per-session queues, every bound a flag with a stated ceiling. **Not implemented:** persistence across
+restarts, TLS, authentication, MQTT 5, websockets, `$SYS`, clustering; [docs/later.md](docs/later.md) says why each is out
+and what taking it up would cost.
 
 ## What has been checked, and how
 

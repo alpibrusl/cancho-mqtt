@@ -23,7 +23,7 @@ def rss_kib(pid):
 
 def churn(port, rng, rounds):
     for i in range(rounds):
-        kind = rng.randrange(7)
+        kind = rng.randrange(9)
         c = Client(port)
         try:
             name = "c%d" % rng.randrange(40)
@@ -45,9 +45,18 @@ def churn(port, rng, rounds):
                 c.publish("p/%d" % rng.randrange(10), b"q" * 50, qos=1)
             elif kind == 5:
                 c.send(connect_packet("big") + publish_packet("x/" + "y" * 300, b"z"))
-            else:
+            elif kind == 6:
                 c.connect(name, clean=True)
                 c.send(b"\xe0\x00")
+            elif kind == 7:
+                # QoS 2 both ways, left half done on purpose: the received set and the PUBREL
+                # entries of a persistent session are state that must not grow.
+                c.connect(name, clean=False)
+                c.subscribe([("p/%d" % rng.randrange(10), 2)])
+                c.send(publish_packet("p/%d" % rng.randrange(10), b"q" * 40, qos=2, pid=rng.randrange(1, 40)))
+            else:
+                c.connect(name, clean=True)
+                c.publish2("t/%d/x" % rng.randrange(20), b"r" * 30, pid=rng.randrange(1, 40))
         except Exception:
             pass
         finally:

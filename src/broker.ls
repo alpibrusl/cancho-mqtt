@@ -132,7 +132,15 @@ fn ctl_pingresp() -> [] int {
     return 2;
 }
 
-// A PUBACK, UNSUBACK or PINGRESP for session `s`, ahead of any limit on
+fn ctl_pubrec() -> [] int {
+    return 3;
+}
+
+fn ctl_pubcomp() -> [] int {
+    return 4;
+}
+
+// A PUBACK, UNSUBACK, PINGRESP, PUBREC or PUBCOMP for session `s`, ahead of any limit on
 // messages. False when there is not even room for four bytes: the caller closes.
 fn enqueue_control[&c](core: &!c tables.Core, s: int, which: int, pid: int) -> [] bool {
     var size = 4;
@@ -148,10 +156,31 @@ fn enqueue_control[&c](core: &!c tables.Core, s: int, which: int, pid: int) -> [
         wire.put_puback(q, at, pid);
     } else if which == ctl_unsuback() {
         wire.put_unsuback(q, at, pid);
+    } else if which == ctl_pubrec() {
+        wire.put_pubrec(q, at, pid);
+    } else if which == ctl_pubcomp() {
+        wire.put_pubcomp(q, at, pid);
     } else {
         wire.put_pingresp(q, at);
     }
-    tables.q_commit(core, s, at, size, 2, 0);
+    tables.q_commit(core, s, at, size, 3, 0);
+    let k = contents(core.ss)[tables.s_stride() * s + 1];
+    if k >= 0 {
+        mark_dirty(core, k);
+    }
+    return true;
+}
+
+// The PUBREL that answers a PUBREC for `pid`: an entry of its own (kind 4) that
+// keeps the identifier in use until the PUBCOMP. False when there is no room even
+// for four bytes: the caller closes.
+fn enqueue_pubrel[&c](core: &!c tables.Core, s: int, pid: int) -> [] bool {
+    let at = tables.q_reserve(core, s, 4, false);
+    if at < 0 {
+        return false;
+    }
+    wire.put_pubrel(tables.queue(core, s), at, pid);
+    tables.q_commit(core, s, at, 4, 4, pid);
     let k = contents(core.ss)[tables.s_stride() * s + 1];
     if k >= 0 {
         mark_dirty(core, k);
@@ -326,7 +355,7 @@ fn flush[&t, &c](tab: &!t conns.Table, core: &!c tables.Core, k: int) -> [conn_w
             while more && at < sd[p + 7] {
                 let size = int_of(q[at]) << 24 | int_of(q[at + 1]) << 16 | int_of(q[at + 2]) << 8 | int_of(q[at + 3]);
                 let kind = int_of(q[at + 5]);
-                if kind == 1 && skip == 0 && inflight >= core.window {
+                if (kind == 1 || kind == 2) && skip == 0 && inflight >= core.window {
                     more = false;
                 } else {
                     var room = len(stage) - staged;
@@ -340,7 +369,7 @@ fn flush[&t, &c](tab: &!t conns.Table, core: &!c tables.Core, k: int) -> [conn_w
                         // The buffer is full in the middle of this message.
                         more = false;
                     } else {
-                        if kind == 1 {
+                        if kind == 1 || kind == 2 || kind == 4 {
                             inflight = inflight + 1;
                         }
                         at = at + 8 + size;
@@ -363,7 +392,7 @@ fn flush[&t, &c](tab: &!t conns.Table, core: &!c tables.Core, k: int) -> [conn_w
                             let kind = int_of(qm[e + 5]);
                             if left >= size - sd[p + 9] {
                                 left = left - (size - sd[p + 9]);
-                                if kind == 1 {
+                                if kind == 1 || kind == 2 || kind == 4 {
                                     qm[e + 4] = byte_of(1);
                                     sd[p + 11] = sd[p + 11] + 1;
                                 } else {
@@ -583,10 +612,6 @@ fn handle_publish[&t, &c, &p](tab: &!t conns.Table, core: &!c tables.Core, k: in
         return 1;
     }
     let qos = pt[5];
-    if qos == 2 {
-        close_conn(tab, core, k, rules.qos2_publish(), true, true);
-        return 1;
-    }
     let name = pkt[pt[0]..pt[0] + pt[1]];
     if !topic.valid_name(name, core.topic_max, core.levels_max) {
         close_conn(tab, core, k, rules.topic_invalid(), true, true);
@@ -594,6 +619,22 @@ fn handle_publish[&t, &c, &p](tab: &!t conns.Table, core: &!c tables.Core, k: in
     }
     let pid = pt[2];
     let retain = pt[6];
+    if qos == 2 {
+        // Method A (design section 7a): route at once, and remember the identifier until
+        // PUBREL so that a resend is acknowledged again but not routed again.
+        if !tables.q2_has(core, s, pid) {
+            if !tables.q2_add(core, s, pid) {
+                close_conn(tab, core, k, rules.qos2_inbound(), true, true);
+                return 1;
+            }
+            route(core, name, pkt[pt[3]..pt[3] + pt[4]], qos, retain);
+        }
+        if !enqueue_control(core, s, ctl_pubrec(), pid) {
+            close_conn(tab, core, k, rules.output_full(), true, true);
+            return 1;
+        }
+        return 0;
+    }
     route(core, name, pkt[pt[3]..pt[3] + pt[4]], qos, retain);
     if qos == 1 {
         if !enqueue_control(core, s, ctl_puback(), pid) {
@@ -620,8 +661,7 @@ fn handle_subscribe[&t, &c, &p](tab: &!t conns.Table, core: &!c tables.Core, k: 
         if !topic.valid_filter(f, core.topic_max, core.levels_max) {
             tables.refuse(core, rules.filter_invalid(), k, s, 0);
         } else {
-            // QoS 2 is not offered: a request for it is granted QoS 1 (3.8.4).
-            let got = subs.subscribe(core.trie, s, f, lower(ft[4 + 3 * i], 1));
+            let got = subs.subscribe(core.trie, s, f, ft[4 + 3 * i]);
             if got >= 0 {
                 code = got;
             } else if got == subs.full_client() {
@@ -642,7 +682,7 @@ fn handle_subscribe[&t, &c, &p](tab: &!t conns.Table, core: &!c tables.Core, k: 
         return 1;
     }
     wire.put_suback(tables.queue(core, s), at, ft[0], codes, n);
-    tables.q_commit(core, s, at, size, 2, 0);
+    tables.q_commit(core, s, at, size, 3, 0);
     mark_dirty(core, k);
     // Retained messages follow the SUBACK.
     i = 0;
@@ -720,6 +760,34 @@ fn handle_packet[&t, &c, &p](tab: &!t conns.Table, core: &!c tables.Core, k: int
             return 1;
         }
         tables.q_ack(core, s, pid);
+        // The window may have opened.
+        mark_dirty(core, k);
+        return 0;
+    }
+    if kind == wire.t_pubrec() || kind == wire.t_pubrel() || kind == wire.t_pubcomp() {
+        let pid = wire.decode_puback(pkt);
+        if pid < 0 {
+            close_conn(tab, core, k, rules.of_wire(pid), true, true);
+            return 1;
+        }
+        if kind == wire.t_pubrec() {
+            // An unknown identifier is ignored (design section 7a).
+            if tables.q_rec(core, s, pid) {
+                if !enqueue_pubrel(core, s, pid) {
+                    close_conn(tab, core, k, rules.output_full(), true, true);
+                    return 1;
+                }
+            }
+        } else if kind == wire.t_pubrel() {
+            // Always answered, so that a client can finish.
+            tables.q2_del(core, s, pid);
+            if !enqueue_control(core, s, ctl_pubcomp(), pid) {
+                close_conn(tab, core, k, rules.output_full(), true, true);
+                return 1;
+            }
+        } else {
+            tables.q_comp(core, s, pid);
+        }
         // The window may have opened.
         mark_dirty(core, k);
         return 0;

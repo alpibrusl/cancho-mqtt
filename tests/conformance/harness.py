@@ -184,6 +184,18 @@ def puback_packet(pid):
     return pkt(0x40, pid.to_bytes(2, "big"))
 
 
+def pubrec_packet(pid):
+    return pkt(0x50, pid.to_bytes(2, "big"))
+
+
+def pubrel_packet(pid):
+    return pkt(0x62, pid.to_bytes(2, "big"))
+
+
+def pubcomp_packet(pid):
+    return pkt(0x70, pid.to_bytes(2, "big"))
+
+
 PINGREQ = b"\xc0\x00"
 DISCONNECT = b"\xe0\x00"
 
@@ -262,6 +274,15 @@ class Client:
         if qos == 1:
             _, body = self.expect(4)
             assert int.from_bytes(body, "big") == pid
+
+    def publish2(self, topic, payload=b"", retain=False, pid=1):
+        """A complete QoS 2 publish from this client: PUBLISH, PUBREC, PUBREL, PUBCOMP."""
+        self.send(publish_packet(topic, payload, qos=2, retain=retain, pid=pid))
+        _, body = self.expect(5)
+        assert int.from_bytes(body, "big") == pid
+        self.send(pubrel_packet(pid))
+        _, body = self.expect(7)
+        assert int.from_bytes(body, "big") == pid
 
     def recv_publish(self, timeout=None):
         """(topic, payload, qos, retain, dup, pid) of the next PUBLISH."""

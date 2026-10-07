@@ -28,7 +28,7 @@ def design_bounds():
     section = text[text.index("## 4. Memory"):text.index("## 5. Rules")]
     rows = []
     for line in section.splitlines():
-        m = re.match(r"\| .* \| `([a-z-]+)` \| ([\d,]+) \| ([\d,]+) \|", line)
+        m = re.match(r"\| .* \| `([a-z0-9-]+)` \| ([\d,]+) \| ([\d,]+) \|", line)
         if m:
             rows.append((m.group(1), int(m.group(2).replace(",", "")), int(m.group(3).replace(",", ""))))
     return rows
@@ -276,7 +276,7 @@ class Text(unittest.TestCase):
         status, out, err = run("rules", "--format", "text")
         self.assertEqual(status, 0)
         lines = out.splitlines()
-        self.assertEqual(len(lines), 28)
+        self.assertEqual(len(lines), 27)
         self.assertTrue(lines[0].startswith("protocol.connect-first  "))
         self.assertNotIn("{", out)
 

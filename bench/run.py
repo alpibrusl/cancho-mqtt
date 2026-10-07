@@ -236,6 +236,7 @@ CELLS = [
     ("fanout_qos0_paced", lambda cores: fanout(0, cores, interval_ms=20, seconds=14)),
     ("fanout_qos0", lambda cores: fanout(0, cores)),
     ("fanout_qos1", lambda cores: fanout(1, cores)),
+    ("fanout_qos2", lambda cores: fanout(2, cores)),
     ("latency_idle0", lambda cores: latency_cell(0)),
     ("latency_idle1000", lambda cores: latency_cell(1000)),
 ]

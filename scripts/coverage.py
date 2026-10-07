@@ -18,8 +18,10 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 TESTS = ROOT / "tests" / "conformance"
 
 NOT_COVERED = """\
-- **QoS 2** in every form: PUBREC, PUBREL, PUBCOMP and a PUBLISH at QoS 2 are refused (`unsupported.*`), and a
-  SUBSCRIBE at QoS 2 is granted QoS 1. Nothing in section 4.3.3 is claimed.
+- **QoS 2** (`test_qos2.py`) is tested against the behaviour in design section 7a and against Mosquitto, but cites only
+  [MQTT-3.6.1-1]: the statement numbers of 4.3.3 and of the PUBREC, PUBCOMP and PUBREL sections were not certain enough to
+  write down, so those tests cite the section in a comment instead. This broker routes a QoS 2 message when its
+  PUBLISH arrives (method A), Mosquitto when its PUBREL arrives (method B); both are allowed by 4.3.3.
 - **Keep-alive of a client that never sends PINGREQ but sends other packets**: any packet resets the timer; only the
   silent case is tested.
 - **UTF-8 well-formedness of every string field**: tested for the client identifier and topic names with U+0000; the
