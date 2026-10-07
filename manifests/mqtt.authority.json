@@ -275,6 +275,7 @@
     "levels",
     "limits",
     "live",
+    "live",
     "low_mask64",
     "lower",
     "lshr64",
@@ -354,6 +355,7 @@
     "size",
     "size$int",
     "slots",
+    "slots",
     "stage_bytes",
     "start",
     "starts_with",
@@ -399,5 +401,5 @@
   ],
   "folded_operators": 156,
   "folded_calls": 1,
-  "functions": 534
+  "functions": 546
 }

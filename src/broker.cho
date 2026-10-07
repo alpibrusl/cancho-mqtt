@@ -11,18 +11,18 @@ edition 5;
 
 module mqtt.broker;
 
-import std.conns;
 import mqtt.auth;
 import mqtt.config;
 import mqtt.rules;
 import mqtt.sys;
 import mqtt.subs;
 import mqtt.tables;
+import mqtt.transport;
 import mqtt.topic;
 import mqtt.wire;
 
 pub res struct Broker {
-    tab: conns.Table,
+    tab: transport.Links,
     core: tables.Core,
 }
 
@@ -37,18 +37,18 @@ pub fn open[&h, &l, &g](heap: &!h Heap, poller: Poller, listener: &!l Listener, 
     borrow mut p as &!pw in {
         poller_add_listener(pw, listener, 0);
     }
-    return Broker { tab: conns.empty(heap, 64), core: tables.open(heap, p, cfg, abuf, ameta, ausers, adummy) };
+    return Broker { tab: transport.empty(heap, 64), core: tables.open(heap, p, cfg, abuf, ameta, ausers, adummy) };
 }
 
 pub fn close[&h](heap: &!h Heap, b: Broker) -> [heap] int {
     let Broker { tab, core } = b;
-    conns.drop(heap, tab);
+    transport.drop(heap, tab);
     tables.drop(heap, core);
     return 0;
 }
 
 pub fn connections[&b](b: &b Broker) -> [] int {
-    return conns.live(b.tab);
+    return transport.live(b.tab);
 }
 
 // ---- the table of connections -------------------------------------------
@@ -56,8 +56,8 @@ pub fn connections[&b](b: &b Broker) -> [] int {
 // Write what there is to say before a session exists (or after it has gone),
 // without queueing: best effort, a fresh connection always has room for four
 // bytes.
-fn send_direct[&t, &d](tab: &!t conns.Table, k: int, data: &d [byte]) -> [conn_write] int {
-    match conns.write(tab, k, data) {
+fn send_direct[&t, &d](tab: &!t transport.Links, k: int, data: &d [byte]) -> [conn_write] int {
+    match transport.write(tab, k, data) {
         Sent::Wrote(n) => {
             return n;
         }
@@ -71,9 +71,9 @@ fn send_direct[&t, &d](tab: &!t conns.Table, k: int, data: &d [byte]) -> [conn_w
 }
 
 // End connection `k`: its socket, its slot. Its session is the caller's business.
-fn shut[&t, &c](tab: &!t conns.Table, core: &!c tables.Core, k: int) -> [] int {
+fn shut[&t, &c](tab: &!t transport.Links, core: &!c tables.Core, k: int) -> [] int {
     let cd = contents(core.cs);
-    conns.close(tab, k);
+    transport.close(tab, k);
     let p = tables.c_stride() * k;
     cd[p] = 0;
     cd[p + 1] = 0;
@@ -334,7 +334,7 @@ fn evict_offline[&c](core: &!c tables.Core) -> [] int {
 // -1: a clean DISCONNECT, a reset). `will` is true when the will is to be
 // published (an abrupt end), false for DISCONNECT and a takeover. `evict` is false
 // while a takeover is about to resume the very session this leaves offline.
-fn close_conn[&t, &c](tab: &!t conns.Table, core: &!c tables.Core, k: int, rule: int, will: bool, evict: bool) -> [] int {
+fn close_conn[&t, &c](tab: &!t transport.Links, core: &!c tables.Core, k: int, rule: int, will: bool, evict: bool) -> [] int {
     let cd = contents(core.cs);
     let sd = contents(core.ss);
     let p = tables.c_stride() * k;
@@ -375,7 +375,7 @@ fn close_conn[&t, &c](tab: &!t conns.Table, core: &!c tables.Core, k: int, rule:
 // Send what session `s` has queued on connection `k`, as far as the kernel and the
 // in-flight window allow, and set what the connection is watched for. Answers 1
 // if the connection has failed and is to be closed.
-fn flush[&t, &c](tab: &!t conns.Table, core: &!c tables.Core, k: int) -> [conn_write, poll] int {
+fn flush[&t, &c](tab: &!t transport.Links, core: &!c tables.Core, k: int) -> [conn_write, poll] int {
     let cd = contents(core.cs);
     let sd = contents(core.ss);
     let cp = tables.c_stride() * k;
@@ -428,7 +428,7 @@ fn flush[&t, &c](tab: &!t conns.Table, core: &!c tables.Core, k: int) -> [conn_w
             if staged == 0 {
                 going = false;
             } else {
-                match conns.write(tab, k, stage[0..staged]) {
+                match transport.write(tab, k, stage[0..staged]) {
                     Sent::Wrote(n) => {
                         cd[cp + 9] = 0;
                         tables.add(core, tables.k_bytes_out(), n);
@@ -491,14 +491,14 @@ fn flush[&t, &c](tab: &!t conns.Table, core: &!c tables.Core, k: int) -> [conn_w
         want = 3;
     }
     if want != cd[cp + 5] {
-        conns.rewatch(tab, core.poller, k, k + 1, want);
+        transport.rewatch(tab, core.poller, k, k + 1, want);
         cd[cp + 5] = want;
     }
     return 0;
 }
 
 // Flush every connection that has something new to send.
-fn flush_dirty[&t, &c](tab: &!t conns.Table, core: &!c tables.Core) -> [conn_write, poll] int {
+fn flush_dirty[&t, &c](tab: &!t transport.Links, core: &!c tables.Core) -> [conn_write, poll] int {
     let cd = contents(core.cs);
     var i = 0;
     while i < core.ndirty {
@@ -536,7 +536,7 @@ fn digits[&o](out: &!o [byte], at: int, n: int) -> [] int {
 
 // Refuse a CONNECT with return code `code`: tell the client, then end the
 // connection. No session is involved.
-fn refuse_connect[&t, &c](tab: &!t conns.Table, core: &!c tables.Core, k: int, rule: int, code: int) -> [conn_write] int {
+fn refuse_connect[&t, &c](tab: &!t transport.Links, core: &!c tables.Core, k: int, rule: int, code: int) -> [conn_write] int {
     region a {
         let b = alloc_slice[a](4, byte_of(0));
         let n = wire.put_connack(b, 0, 0, code);
@@ -577,7 +577,7 @@ fn login[&c, &t, &p](core: &!c tables.Core, ct: &t [int], pkt: &p [byte]) -> [] 
 }
 
 // The CONNECT in `pkt` on connection `k`. Answers 1 if the connection was closed.
-fn handle_connect[&t, &c, &p](tab: &!t conns.Table, core: &!c tables.Core, k: int, pkt: &p [byte]) -> [conn_write] int {
+fn handle_connect[&t, &c, &p](tab: &!t transport.Links, core: &!c tables.Core, k: int, pkt: &p [byte]) -> [conn_write] int {
     let ct = contents(core.ct);
     let r = wire.decode_connect(pkt, ct);
     if r < 0 {
@@ -712,7 +712,7 @@ fn handle_connect[&t, &c, &p](tab: &!t conns.Table, core: &!c tables.Core, k: in
 }
 
 // A PUBLISH from session `s` on connection `k`. Answers 1 if the connection was closed.
-fn handle_publish[&t, &c, &p](tab: &!t conns.Table, core: &!c tables.Core, k: int, s: int, pkt: &p [byte]) -> [] int {
+fn handle_publish[&t, &c, &p](tab: &!t transport.Links, core: &!c tables.Core, k: int, s: int, pkt: &p [byte]) -> [] int {
     let pt = contents(core.pt);
     let r = wire.decode_publish(pkt, pt);
     if r < 0 {
@@ -763,7 +763,7 @@ fn handle_publish[&t, &c, &p](tab: &!t conns.Table, core: &!c tables.Core, k: in
     return 0;
 }
 
-fn handle_subscribe[&t, &c, &p](tab: &!t conns.Table, core: &!c tables.Core, k: int, s: int, pkt: &p [byte]) -> [] int {
+fn handle_subscribe[&t, &c, &p](tab: &!t transport.Links, core: &!c tables.Core, k: int, s: int, pkt: &p [byte]) -> [] int {
     let ft = contents(core.ft);
     let codes = contents(core.codes);
     let r = wire.decode_filters(pkt, ft, true);
@@ -814,7 +814,7 @@ fn handle_subscribe[&t, &c, &p](tab: &!t conns.Table, core: &!c tables.Core, k: 
     return 0;
 }
 
-fn handle_unsubscribe[&t, &c, &p](tab: &!t conns.Table, core: &!c tables.Core, k: int, s: int, pkt: &p [byte]) -> [] int {
+fn handle_unsubscribe[&t, &c, &p](tab: &!t transport.Links, core: &!c tables.Core, k: int, s: int, pkt: &p [byte]) -> [] int {
     let ft = contents(core.ft);
     let r = wire.decode_filters(pkt, ft, false);
     if r < 0 {
@@ -837,7 +837,7 @@ fn handle_unsubscribe[&t, &c, &p](tab: &!t conns.Table, core: &!c tables.Core, k
 }
 
 // One whole packet from connection `k`; answers 1 if the connection was closed.
-fn handle_packet[&t, &c, &p](tab: &!t conns.Table, core: &!c tables.Core, k: int, pkt: &p [byte]) -> [conn_write] int {
+fn handle_packet[&t, &c, &p](tab: &!t transport.Links, core: &!c tables.Core, k: int, pkt: &p [byte]) -> [conn_write] int {
     let cd = contents(core.cs);
     let s = cd[tables.c_stride() * k + 3];
     let kind = wire.kind(pkt);
@@ -936,7 +936,7 @@ fn handle_packet[&t, &c, &p](tab: &!t conns.Table, core: &!c tables.Core, k: int
 // connection `k`'s spill slot. A connection holds a slot only while a packet is
 // split across reads, so the pages a broker touches follow what is in flight, not
 // the number of connections.
-fn process_input[&t, &c](tab: &!t conns.Table, core: &!c tables.Core, k: int, n: int) -> [conn_write] int {
+fn process_input[&t, &c](tab: &!t transport.Links, core: &!c tables.Core, k: int, n: int) -> [conn_write] int {
     let cd = contents(core.cs);
     let cp = tables.c_stride() * k;
     let bf = contents(core.inbuf);
@@ -978,7 +978,7 @@ fn process_input[&t, &c](tab: &!t conns.Table, core: &!c tables.Core, k: int, n:
 
 // One step of I/O on connection `k`, which the poller said was ready. `events` is
 // 1 for readable, 2 for writable (a hang-up or error reads as readable).
-fn step[&t, &c](tab: &!t conns.Table, core: &!c tables.Core, k: int, events: int, now: int) -> [conn_read, conn_write] int {
+fn step[&t, &c](tab: &!t transport.Links, core: &!c tables.Core, k: int, events: int, now: int) -> [conn_read, conn_write] int {
     let cd = contents(core.cs);
     let cp = tables.c_stride() * k;
     if events & 1 != 0 {
@@ -992,7 +992,7 @@ fn step[&t, &c](tab: &!t conns.Table, core: &!c tables.Core, k: int, events: int
         }
         var code = 0;
         var have = 0;
-        match conns.read(tab, k, bf[pending..core.pmax]) {
+        match transport.read(tab, k, bf[pending..core.pmax]) {
             Received::Data(got) => {
                 tables.add(core, tables.k_bytes_in(), got);
                 have = pending + got;
@@ -1027,7 +1027,7 @@ fn step[&t, &c](tab: &!t conns.Table, core: &!c tables.Core, k: int, events: int
 // Take every connection waiting on the listener, up to the limit. Each goes in
 // the table, is made non-blocking and is watched for input under the token
 // `slot + 1` (the listener is token 0).
-fn accept_all[&h, &l, &c](heap: &!h Heap, conn: conns.Table, listener: &!l Listener, core: &!c tables.Core, now: int) -> [heap, conn_accept, poll] conns.Table {
+fn accept_all[&h, &l, &c](heap: &!h Heap, conn: transport.Links, listener: &!l Listener, core: &!c tables.Core, now: int) -> [heap, conn_accept, poll] transport.Links {
     let cd = contents(core.cs);
     var table = conn;
     var more = true;
@@ -1036,13 +1036,13 @@ fn accept_all[&h, &l, &c](heap: &!h Heap, conn: conns.Table, listener: &!l Liste
             Accepted::Ok(c) => {
                 var held = 0;
                 borrow table as &tt in {
-                    held = conns.live(tt);
+                    held = transport.live(tt);
                 }
                 if held >= core.limit {
                     conn_close(c);
                     tables.refuse(core, rules.connections(), 0 - 1, 0 - 1, 0);
                 } else {
-                    let (grown, slot) = conns.put(heap, table, c);
+                    let (grown, slot) = transport.put(heap, table, c);
                     table = grown;
                     if slot >= 0 {
                         let p = tables.c_stride() * slot;
@@ -1059,7 +1059,7 @@ fn accept_all[&h, &l, &c](heap: &!h Heap, conn: conns.Table, listener: &!l Liste
                         cd[p + 10] = 0;
                         cd[p + 11] = cd[p + 11] + 1;
                         borrow mut table as &!ct in {
-                            if conns.nonblocking(ct, slot) != 0 || conns.nodelay(ct, slot) != 0 || conns.watch(ct, core.poller, slot, slot + 1, 1) != 0 {
+                            if transport.nonblocking(ct, slot) != 0 || transport.nodelay(ct, slot) != 0 || transport.watch(ct, core.poller, slot, slot + 1, 1) != 0 {
                                 shut(ct, core, slot);
                             }
                         }
@@ -1079,10 +1079,10 @@ fn accept_all[&h, &l, &c](heap: &!h Heap, conn: conns.Table, listener: &!l Liste
 
 // Once a second: connections that have not sent CONNECT in time, that have been
 // silent for one and a half keepalives, or that cannot be written to.
-fn sweep[&t, &c](tab: &!t conns.Table, core: &!c tables.Core, now: int) -> [] int {
+fn sweep[&t, &c](tab: &!t transport.Links, core: &!c tables.Core, now: int) -> [] int {
     let cd = contents(core.cs);
     var k = 0;
-    while k < conns.slots(tab) {
+    while k < transport.slots(tab) {
         let p = tables.c_stride() * k;
         if cd[p] == 1 {
             if cd[p + 3] < 0 {

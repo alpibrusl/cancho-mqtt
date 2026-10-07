@@ -4,7 +4,7 @@ cancho = "53499414cc244d613f87c714f2ed2098d6974328"   # the compiler these sourc
 
 [[bin]]
 name = "mqtt"
-sources = ["src", "generated/mqtt"]
+sources = ["src", "plain", "generated/mqtt"]
 std = true
 out = "build/mqtt"
 
