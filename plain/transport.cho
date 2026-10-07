@@ -1,11 +1,12 @@
 edition 5;
 
-// `mqtt.transport` -- the plain transport: a connection is a socket (docs/design.md section 7d, step 2).
+// `mqtt.transport` -- the plain transport: a connection is a socket (docs/design.md section 7d).
 //
-// The broker reaches its connections only through this module, so that a second module of the same name, for TLS, can sit
-// in its place in a second binary without a line of `broker.cho` changing. This one is a pass-through to `std.conns`: every
-// function does what the `conns` function of the same name does, and nothing else, so that moving the broker onto it is
-// measured to change nothing. `Links` is the connection table and, in another transport, whatever else a connection needs.
+// The broker reaches its connections and its listeners only through this module, so that a second module of the same name,
+// for TLS (tls/transport.cho), can sit in its place in a second binary without a line of `broker.cho` changing. This one is
+// a pass-through to `std.conns`: every function does what the `conns` function of the same name does, and the hooks only
+// TLS needs (`tick`, `pump`, `more`, `wants_write`, `expired`, `reload`) do nothing. `Links` is the
+// connection table and, in another transport, whatever else a connection needs.
 
 module mqtt.transport;
 
@@ -15,54 +16,83 @@ pub res struct Links {
     table: conns.Table,
 }
 
-pub fn empty[&h](heap: &!h Heap, capacity: int) -> [heap] Links {
+// Links for `capacity` connections. The listeners are the broker's (`broker.open`), not the transport's.
+pub fn open[&h](heap: &!h Heap, capacity: int) -> [heap] Links {
     return Links { table: conns.empty(heap, capacity) };
 }
 
-pub fn drop[&h](heap: &!h Heap, net: Links) -> [heap] int {
-    let Links { table } = net;
+pub fn drop[&h](heap: &!h Heap, links: Links) -> [heap] int {
+    let Links { table } = links;
     return conns.drop(heap, table);
 }
 
-pub fn live[&n](net: &n Links) -> [] int {
-    return conns.live(net.table);
+pub fn live[&n](links: &n Links) -> [] int {
+    return conns.live(links.table);
 }
 
-pub fn slots[&n](net: &n Links) -> [] int {
-    return conns.slots(net.table);
+pub fn slots[&n](links: &n Links) -> [] int {
+    return conns.slots(links.table);
 }
 
-// A connection `c` into the table: the grown table and its slot, or -1.
-pub fn put[&h](heap: &!h Heap, net: Links, c: Conn) -> [heap] (Links, int) {
-    let Links { table } = net;
+// A connection `c` into the table: the grown table and its slot, or -1 when it is full. `secure` says which listener it
+// came from; a transport with no secure listener never sees it set.
+pub fn put[&h](heap: &!h Heap, links: Links, c: Conn, secure: bool) -> [heap] (Links, int) {
+    let Links { table } = links;
     let (grown, slot) = conns.put(heap, table, c);
     return (Links { table: grown }, slot);
 }
 
-pub fn read[&n, &b](net: &!n Links, slot: int, into: &!b [byte]) -> [conn_read] Received {
-    return conns.read(net.table, slot, into);
+// Make the connection in `slot` ready and start watching it. 0, or -1 when the socket could not be set up.
+pub fn begin[&n, &p](links: &!n Links, poller: &!p Poller, slot: int, secure: bool, now: int) -> [poll] int {
+    if conns.nonblocking(links.table, slot) != 0 || conns.nodelay(links.table, slot) != 0 || conns.watch(links.table, poller, slot, slot + 1, 1) != 0 {
+        return 0 - 1;
+    }
+    return 0;
 }
 
-pub fn write[&n, &b](net: &!n Links, slot: int, data: &b [byte]) -> [conn_write] Sent {
-    return conns.write(net.table, slot, data);
+// Once a round: start what may be started. `dead` is filled with (slot, rule) pairs for connections the transport ended;
+// answers how many pairs.
+pub fn tick[&n, &p, &d](links: &!n Links, poller: &!p Poller, now: int, unix_ms: int, dead: &!d [int]) -> [] int {
+    return 0;
 }
 
-pub fn nonblocking[&n](net: &!n Links, slot: int) -> [] int {
-    return conns.nonblocking(net.table, slot);
+// Everything the transport must do for `slot` after the poller said `events` (bit 0 read, bit 1 write) and before the
+// broker reads: 0, or 1 + the rule that ends the connection.
+pub fn pump[&n, &p](links: &!n Links, poller: &!p Poller, slot: int, events: int, now: int) -> [] int {
+    return 0;
 }
 
-pub fn nodelay[&n](net: &!n Links, slot: int) -> [] int {
-    return conns.nodelay(net.table, slot);
+// Whether `slot` holds data a read did not return, so that the broker reads again without waiting for the network.
+pub fn more[&n](links: &n Links, slot: int) -> [] bool {
+    return false;
 }
 
-pub fn watch[&n, &p](net: &!n Links, poller: &!p Poller, slot: int, token: int, events: int) -> [poll] int {
-    return conns.watch(net.table, poller, slot, token, events);
+// Whether `slot` needs to be told when its socket can be written, beyond what the broker itself has queued.
+pub fn wants_write[&n](links: &n Links, slot: int) -> [] bool {
+    return false;
 }
 
-pub fn rewatch[&n, &p](net: &!n Links, poller: &!p Poller, slot: int, token: int, events: int) -> [poll] int {
-    return conns.rewatch(net.table, poller, slot, token, events);
+// The rule that ends `slot` for taking too long before CONNECT is possible, or -1.
+pub fn expired[&n](links: &n Links, slot: int, now: int) -> [] int {
+    return 0 - 1;
 }
 
-pub fn close[&n](net: &!n Links, slot: int) -> [] int {
-    return conns.close(net.table, slot);
+pub fn read[&n, &b](links: &!n Links, slot: int, into: &!b [byte]) -> [conn_read] Received {
+    return conns.read(links.table, slot, into);
+}
+
+pub fn write[&n, &b](links: &!n Links, slot: int, data: &b [byte]) -> [conn_write] Sent {
+    return conns.write(links.table, slot, data);
+}
+
+pub fn watch[&n, &p](links: &!n Links, poller: &!p Poller, slot: int, token: int, events: int) -> [poll] int {
+    return conns.watch(links.table, poller, slot, token, events);
+}
+
+pub fn rewatch[&n, &p](links: &!n Links, poller: &!p Poller, slot: int, token: int, events: int) -> [poll] int {
+    return conns.rewatch(links.table, poller, slot, token, events);
+}
+
+pub fn close[&n](links: &!n Links, slot: int) -> [] int {
+    return conns.close(links.table, slot);
 }

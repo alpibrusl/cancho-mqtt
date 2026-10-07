@@ -21,6 +21,7 @@ import std.buffer;
 import std.bytes;
 import std.io;
 import std.json;
+import std.option;
 import std.signals as sg;
 import built;
 import toolbox.cli;
@@ -32,6 +33,7 @@ import mqtt.broker;
 import mqtt.config;
 import mqtt.logs;
 import mqtt.rules;
+import mqtt.transport;
 
 fn version() -> [] &static [byte] {
     return config.version();
@@ -226,13 +228,35 @@ pub fn configure[&h, &g, &i, &c](heap: &!h Heap, args: &g Args, io: &!i Io, cfg:
 
 // ---- serving -------------------------------------------------------------
 
-// Run the broker on `listener` until a stop signal arrives or the log cannot be
-// written. Answers the exit status.
-pub fn serve[&h, &g, &k, &l, &w, &i](heap: &!h Heap, cfg: &g [int], abuf: Box[[byte]], ameta: Box[[int]], ausers: int, adummy: int, clock: &k Clock, listener: &!l Listener, watch: &!w SignalWatch, io: &!i Io) -> [heap, conn_accept, conn_read, conn_write, poll, clock, signals_read, io_write, err_write] int {
+// ---- serving ---------------------------------------------------------------------------------------------------------
+//
+// The loop is the binary's, not this module's: `begin` opens the broker, `round` does one wait and what follows it, `finish`
+// writes the end record. A variant's `main` drives them, so that what it does on a signal (the TLS binary reads its
+// identity again on SIGHUP) is its own code and its own authority, and not a call from here whose effects would have to be
+// the same in both programs.
+
+pub res struct Run {
+    b: broker.Broker,
+    limiter: Box[[int]],
+    t0: int,
+    last_stats: int,
+    text: bool,
+    ok: bool,
+    running: bool,
+}
+
+pub enum Began {
+    Ok(Run),
+    Failed(int),
+}
+
+// Open the broker on the listeners `links` holds, watch for the stop signals and write the `listening` record. `Failed`
+// carries the exit status after the refusal has been written.
+pub fn begin[&h, &g, &k, &w, &i](heap: &!h Heap, cfg: &g [int], abuf: Box[[byte]], ameta: Box[[int]], ausers: int, adummy: int, clock: &k Clock, links: transport.Links, plain: option.Option[Listener], secure: option.Option[Listener], watch: &!w SignalWatch, io: &!i Io) -> [heap, poll, clock, io_write, err_write] Began {
     match poller_new() {
         Polling::Ok(p) => {
             let t0 = clock_ms(clock);
-            var b = broker.open(heap, p, listener, cfg, abuf, ameta, ausers, adummy);
+            var b = broker.open(heap, p, links, plain, secure, cfg, abuf, ameta, ausers, adummy);
             var token = 0;
             borrow b as &br in {
                 token = broker.first_token(br);
@@ -241,71 +265,97 @@ pub fn serve[&h, &g, &k, &l, &w, &i](heap: &!h Heap, cfg: &g [int], abuf: Box[[b
                 poller_add_signals(broker.poller(bw), watch, token);
             }
             let text = cfg[config.i_format()] == 1;
-            var ok = logs.listening(heap, io, text, cfg[config.i_port()], cfg[config.i_connections()], cfg[config.i_packet()], config.memory(cfg), 0);
+            let ok = logs.listening(heap, io, text, cfg[config.i_port()], cfg[config.i_connections()], cfg[config.i_packet()], config.memory(cfg), 0);
             let limiter = box_slice(heap, 2 * rules.count(), 0);
-            var last_stats = 0;
-            var running = ok;
-            while running {
-                b = broker.wait(heap, b, clock, listener, 1000);
-                let ms = clock_ms(clock) - t0;
-                let now = ms / 1000;
-                borrow mut b as &!bw in {
-                    borrow mut limiter as &!lm in {
-                        if !logs.drain(heap, io, text, bw, contents(lm), now, ms) {
-                            ok = false;
-                        }
-                    }
-                }
-                if ok && cfg[config.i_stats()] > 0 && now - last_stats >= cfg[config.i_stats()] {
-                    last_stats = now;
-                    borrow b as &br in {
-                        if !logs.stats(heap, io, text, br, ms) {
-                            ok = false;
-                        }
-                    }
-                }
-                if sg.any(signals_pending(watch), sg.stop_signals()) {
-                    running = false;
-                }
-                if !ok {
-                    running = false;
-                }
-            }
-            var status = 0;
-            // Repeats still held back, the counters as they stand, then the end record.
-            if ok {
-                borrow b as &br in {
-                    borrow mut limiter as &!lm in {
-                        ok = logs.drain_all(heap, io, text, br, contents(lm), clock_ms(clock) - t0);
-                    }
-                }
-            }
-            if ok {
-                borrow b as &br in {
-                    ok = logs.stats(heap, io, text, br, clock_ms(clock) - t0);
-                }
-            }
-            if ok {
-                borrow b as &br in {
-                    ok = logs.end_served(heap, io, text, br, clock_ms(clock) - t0);
-                }
-            }
-            if !ok || !out.flushed(io) {
-                out.write_failed(io, "mqtt");
-                status = 1;
-            }
-            unbox_slice(heap, limiter);
-            broker.close(heap, b);
-            return status;
+            return Began::Ok(Run { b: b, limiter: limiter, t0: t0, last_stats: 0, text: text, ok: ok, running: ok });
         }
         Polling::Failed(e) => {
             unbox_slice(heap, abuf);
             unbox_slice(heap, ameta);
+            transport.drop(heap, links);
+            broker.discard(plain);
+            broker.discard(secure);
             var errs = fail.empty_in(heap, own_rules());
             errs = problem(heap, errs, "io.poller-failed", "the operating system could not create the poller", "", "errno", "poller");
-            return refuse(heap, io, errs, cfg[config.i_format()] == 1);
+            return Began::Failed(refuse(heap, io, errs, cfg[config.i_format()] == 1));
         }
     }
+}
+
+pub fn running[&r](run: &r Run) -> [] bool {
+    return run.running;
+}
+
+// The transport the broker holds, for what only a variant does with it (a reload).
+pub fn links[&r](run: &!r Run) -> [] &!r transport.Links {
+    return broker.links(run.b);
+}
+
+// One wait for the network, the I/O that follows it, the log and the stats record. Answers the signals that arrived (a
+// mask for `std.signals`); a stop signal, or a log that cannot be written, ends the run.
+pub fn round[&h, &g, &k, &w, &i](heap: &!h Heap, run: Run, cfg: &g [int], clock: &k Clock, watch: &!w SignalWatch, io: &!i Io) -> [heap, conn_accept, conn_read, conn_write, poll, clock, signals_read, io_write] (Run, int) {
+    let Run { b, limiter, t0, last_stats, text, ok, running } = run;
+    var state = b;
+    var last = last_stats;
+    var good = ok;
+    var go = running;
+    state = broker.wait(heap, state, clock, 1000);
+    let ms = clock_ms(clock) - t0;
+    let now = ms / 1000;
+    borrow mut state as &!bw in {
+        borrow mut limiter as &!lm in {
+            if !logs.drain(heap, io, text, bw, contents(lm), now, ms) {
+                good = false;
+            }
+        }
+    }
+    if good && cfg[config.i_stats()] > 0 && now - last >= cfg[config.i_stats()] {
+        last = now;
+        borrow state as &br in {
+            if !logs.stats(heap, io, text, br, ms) {
+                good = false;
+            }
+        }
+    }
+    let mask = signals_pending(watch);
+    if sg.any(mask, sg.stop_signals()) {
+        go = false;
+    }
+    if !good {
+        go = false;
+    }
+    return (Run { b: state, limiter: limiter, t0: t0, last_stats: last, text: text, ok: good, running: go }, mask);
+}
+
+// The held-back repeats, the counters as they stand and the end record; then the broker is closed. Answers the exit status.
+pub fn finish[&h, &k, &i](heap: &!h Heap, run: Run, clock: &k Clock, io: &!i Io) -> [heap, clock, io_write, err_write] int {
+    let Run { b, limiter, t0, last_stats, text, ok, running } = run;
+    var good = ok;
+    var status = 0;
+    if good {
+        borrow b as &br in {
+            borrow mut limiter as &!lm in {
+                good = logs.drain_all(heap, io, text, br, contents(lm), clock_ms(clock) - t0);
+            }
+        }
+    }
+    if good {
+        borrow b as &br in {
+            good = logs.stats(heap, io, text, br, clock_ms(clock) - t0);
+        }
+    }
+    if good {
+        borrow b as &br in {
+            good = logs.end_served(heap, io, text, br, clock_ms(clock) - t0);
+        }
+    }
+    if !good || !out.flushed(io) {
+        out.write_failed(io, "mqtt");
+        status = 1;
+    }
+    unbox_slice(heap, limiter);
+    broker.close(heap, b);
+    return status;
 }
 
 // ---- the credential table ------------------------------------------------------------------------------------------

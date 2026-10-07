@@ -134,8 +134,21 @@ pub fn auth_budget() -> [] int {
     return 30;
 }
 
-pub fn count() -> [] int {
+// The three below are fired only by `mqtt-tls`; the plain binary lists them (one table) and never fires them.
+pub fn tls_connections() -> [] int {
     return 31;
+}
+
+pub fn tls_handshake_timeout() -> [] int {
+    return 32;
+}
+
+pub fn tls_handshake_failed() -> [] int {
+    return 33;
+}
+
+pub fn count() -> [] int {
+    return 34;
 }
 
 // The tag of rule `i`.
@@ -230,7 +243,16 @@ pub fn tag(i: int) -> [] &static [byte] {
     if i == 29 {
         return "auth.bad-credentials";
     }
-    return "limit.auth-budget";
+    if i == 30 {
+        return "limit.auth-budget";
+    }
+    if i == 31 {
+        return "limit.tls-connections";
+    }
+    if i == 32 {
+        return "timeout.tls-handshake";
+    }
+    return "tls.handshake-failed";
 }
 
 // What the broker does when the rule fires, for `introspect`'s `connection_rules`.
@@ -270,6 +292,15 @@ pub fn action(i: int) -> [] &static [byte] {
     }
     if i == 30 {
         return "CONNACK 0x03, then close";
+    }
+    if i == 31 {
+        return "close at accept, before any TLS (mqtt-tls only)";
+    }
+    if i == 32 {
+        return "close (mqtt-tls only)";
+    }
+    if i == 33 {
+        return "alert, then close (mqtt-tls only)";
     }
     return "close";
 }

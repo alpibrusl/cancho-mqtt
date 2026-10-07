@@ -9,11 +9,13 @@ edition 6;
 //     mqtt skill                                        the same, as an agentskills.io SKILL.md
 //     mqtt rules                                        the connection-level rules, as NDJSON
 
+import std.option;
 import std.signals as sg;
 import toolbox.fail;
 import mqtt.app;
 import mqtt.auth;
 import mqtt.config;
+import mqtt.transport;
 
 fn main(world: World) -> [] int {
     let Split { io, ffi, fs, heap, args, net, clock, signals } = split(world);
@@ -70,28 +72,47 @@ fn main(world: World) -> [] int {
                                         var listener = l;
                                         borrow mut listener as &!lh in {
                                             listener_nonblocking(lh);
-                                            borrow claim as &sc in {
-                                                match signals_watch(sc) {
-                                                    Watching::Ok(wt) => {
-                                                        var watch = wt;
-                                                        borrow mut watch as &!wh in {
-                                                            borrow clock as &c in {
-                                                                status = app.serve(h, contents(cr), abuf, ameta, users, dummy, c, lh, wh, i);
+                                        }
+                                        // The listener is the transport's from here on, with the table of connections.
+                                        let links = transport.open(h, 64);
+                                        borrow claim as &sc in {
+                                            match signals_watch(sc) {
+                                                Watching::Ok(wt) => {
+                                                    var watch = wt;
+                                                    borrow mut watch as &!wh in {
+                                                        borrow clock as &c in {
+                                                            match app.begin(h, contents(cr), abuf, ameta, users, dummy, c, links, option.Option::Some(listener), option.Option::None, wh, i) {
+                                                                app.Began::Ok(r) => {
+                                                                    var run = r;
+                                                                    var going = true;
+                                                                    while going {
+                                                                        let (next, mask) = app.round(h, run, contents(cr), c, wh, i);
+                                                                        run = next;
+                                                                        borrow run as &rr in {
+                                                                            going = app.running(rr);
+                                                                        }
+                                                                    }
+                                                                    status = app.finish(h, run, c, i);
+                                                                }
+                                                                app.Began::Failed(code) => {
+                                                                    status = code;
+                                                                }
                                                             }
                                                         }
-                                                        signals_close(watch);
                                                     }
-                                                    Watching::Failed(e) => {
-                                                        unbox_slice(h, abuf);
-                                                        unbox_slice(h, ameta);
-                                                        var errs = fail.empty_in(h, app.own_rules());
-                                                        errs = app.problem(h, errs, "io.poller-failed", "the operating system could not watch for stop signals", "", "errno", "signals");
-                                                        status = app.refuse(h, i, errs, contents(cr)[config.i_format()] == 1);
-                                                    }
+                                                    signals_close(watch);
+                                                }
+                                                Watching::Failed(e) => {
+                                                    transport.drop(h, links);
+                                                    listener_close(listener);
+                                                    unbox_slice(h, abuf);
+                                                    unbox_slice(h, ameta);
+                                                    var errs = fail.empty_in(h, app.own_rules());
+                                                    errs = app.problem(h, errs, "io.poller-failed", "the operating system could not watch for stop signals", "", "errno", "signals");
+                                                    status = app.refuse(h, i, errs, contents(cr)[config.i_format()] == 1);
                                                 }
                                             }
                                         }
-                                        listener_close(listener);
                                     }
                                     Listening::Failed(e) => {
                                         unbox_slice(h, abuf);

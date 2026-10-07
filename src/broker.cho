@@ -11,6 +11,7 @@ edition 5;
 
 module mqtt.broker;
 
+import std.option;
 import mqtt.auth;
 import mqtt.config;
 import mqtt.rules;
@@ -24,24 +25,71 @@ import mqtt.wire;
 pub res struct Broker {
     tab: transport.Links,
     core: tables.Core,
+    plain: option.Option[Listener],
+    secure: option.Option[Listener],
 }
 
 // ---- opening and closing -------------------------------------------------
 
-// A broker for connections on `listener` (already listening and non-blocking),
-// waited on through `poller`, which it owns from now on. `cfg` is indexed by
-// `config.i_*`.
+// A broker for connections on `plain` and `secure` (each already listening and non-blocking, or absent), waited on through
+// `poller`, which it owns from now on. `cfg` is indexed by `config.i_*`. The plain listener is token 0, the secure one the
+// token after the connections' (slot + 1 up to the limit).
 // `abuf`, `ameta`, `ausers` and `adummy` are the credential table `mqtt.auth.parse` made (empty when authentication is off).
-pub fn open[&h, &l, &g](heap: &!h Heap, poller: Poller, listener: &!l Listener, cfg: &g [int], abuf: Box[[byte]], ameta: Box[[int]], ausers: int, adummy: int) -> [heap] Broker {
+pub fn open[&h, &g](heap: &!h Heap, poller: Poller, links: transport.Links, plain: option.Option[Listener], secure: option.Option[Listener], cfg: &g [int], abuf: Box[[byte]], ameta: Box[[int]], ausers: int, adummy: int) -> [heap] Broker {
     var p = poller;
+    var pl = plain;
+    var sl = secure;
     borrow mut p as &!pw in {
-        poller_add_listener(pw, listener, 0);
+        borrow mut pl as &!pr in {
+            match pr {
+                option.Option::Some(l) => {
+                    poller_add_listener(pw, l, 0);
+                }
+                option.Option::None => {
+                }
+            }
+        }
+        borrow mut sl as &!sr in {
+            match sr {
+                option.Option::Some(l) => {
+                    poller_add_listener(pw, l, cfg[config.i_connections()] + 1);
+                }
+                option.Option::None => {
+                }
+            }
+        }
     }
-    return Broker { tab: transport.empty(heap, 64), core: tables.open(heap, p, cfg, abuf, ameta, ausers, adummy) };
+    return Broker { tab: links, core: tables.open(heap, p, cfg, abuf, ameta, ausers, adummy), plain: pl, secure: sl };
+}
+
+// Close a listener that was never given to a broker.
+pub fn discard(l: option.Option[Listener]) -> [] int {
+    match l {
+        option.Option::Some(x) => {
+            listener_close(x);
+        }
+        option.Option::None => {
+        }
+    }
+    return 0;
 }
 
 pub fn close[&h](heap: &!h Heap, b: Broker) -> [heap] int {
-    let Broker { tab, core } = b;
+    let Broker { tab, core, plain, secure } = b;
+    match plain {
+        option.Option::Some(l) => {
+            listener_close(l);
+        }
+        option.Option::None => {
+        }
+    }
+    match secure {
+        option.Option::Some(l) => {
+            listener_close(l);
+        }
+        option.Option::None => {
+        }
+    }
     transport.drop(heap, tab);
     tables.drop(heap, core);
     return 0;
@@ -487,7 +535,7 @@ fn flush[&t, &c](tab: &!t transport.Links, core: &!c tables.Core, k: int) -> [co
     }
     tables.q_trim(core, s);
     var want = 1;
-    if blocked {
+    if blocked || transport.wants_write(tab, k) {
         want = 3;
     }
     if want != cd[cp + 5] {
@@ -978,98 +1026,139 @@ fn process_input[&t, &c](tab: &!t transport.Links, core: &!c tables.Core, k: int
 
 // One step of I/O on connection `k`, which the poller said was ready. `events` is
 // 1 for readable, 2 for writable (a hang-up or error reads as readable).
-fn step[&t, &c](tab: &!t transport.Links, core: &!c tables.Core, k: int, events: int, now: int) -> [conn_read, conn_write] int {
+fn step[&t, &c](tab: &!t transport.Links, core: &!c tables.Core, k: int, events: int, now: int) -> [conn_read, conn_write, poll] int {
     let cd = contents(core.cs);
     let cp = tables.c_stride() * k;
+    // The transport first: a secure connection's handshake, its bytes in and out. -1 says the handshake just finished (the
+    // time to CONNECT starts now); above 0 is 1 plus the rule that ends the connection.
+    let moved = transport.pump(tab, core.poller, k, events, now);
+    if moved > 0 {
+        close_conn(tab, core, k, moved - 1, true, true);
+        return 0;
+    }
+    if moved < 0 {
+        cd[cp + 7] = now;
+    }
     if events & 1 != 0 {
-        // What is pending from a split packet is copied to the scratch, and the read
-        // lands after it.
-        let pending = cd[cp + 1];
-        let bf = contents(core.inbuf);
-        if pending > 0 {
-            let at = (cd[cp + 12] + 1) * core.pmax;
-            copy_into(bf[0..pending], bf[at..at + pending]);
-        }
-        var code = 0;
-        var have = 0;
-        match transport.read(tab, k, bf[pending..core.pmax]) {
-            Received::Data(got) => {
-                tables.add(core, tables.k_bytes_in(), got);
-                have = pending + got;
-                cd[cp + 2] = now;
-                code = 1;
+        var again = true;
+        while again {
+            again = false;
+            // What is pending from a split packet is copied to the scratch, and the read
+            // lands after it.
+            let pending = cd[cp + 1];
+            let bf = contents(core.inbuf);
+            if pending > 0 {
+                let at = (cd[cp + 12] + 1) * core.pmax;
+                copy_into(bf[0..pending], bf[at..at + pending]);
             }
-            Received::End => {
-                code = 2;
+            var code = 0;
+            var have = 0;
+            match transport.read(tab, k, bf[pending..core.pmax]) {
+                Received::Data(got) => {
+                    tables.add(core, tables.k_bytes_in(), got);
+                    have = pending + got;
+                    cd[cp + 2] = now;
+                    code = 1;
+                }
+                Received::End => {
+                    code = 2;
+                }
+                Received::Again => {
+                }
+                Received::Failed(e) => {
+                    code = 2;
+                }
             }
-            Received::Again => {
-            }
-            Received::Failed(e) => {
-                code = 2;
-            }
-        }
-        if code == 2 {
-            close_conn(tab, core, k, 0 - 1, true, true);
-            return 0;
-        }
-        if code == 1 {
-            if process_input(tab, core, k, have) == 1 {
+            if code == 2 {
+                close_conn(tab, core, k, 0 - 1, true, true);
                 return 0;
+            }
+            if code == 1 {
+                if process_input(tab, core, k, have) == 1 {
+                    return 0;
+                }
+                // A secure connection may hold more plaintext than one read returned, and the network will not say so.
+                if transport.more(tab, k) {
+                    again = true;
+                }
             }
         }
     }
     if events & 2 != 0 && cd[cp] == 1 {
         mark_dirty(core, k);
     }
+    // Watch for writing while the transport has bytes the socket did not take (a handshake flight, say), and stop when it
+    // has none and the connection has no session whose flush would decide.
+    let ww = transport.wants_write(tab, k);
+    if ww && cd[cp + 5] != 3 {
+        transport.rewatch(tab, core.poller, k, k + 1, 3);
+        cd[cp + 5] = 3;
+    } else if !ww && cd[cp + 5] == 3 && cd[cp + 3] < 0 && cd[cp] == 1 {
+        transport.rewatch(tab, core.poller, k, k + 1, 1);
+        cd[cp + 5] = 1;
+    }
     return 0;
 }
 
-// Take every connection waiting on the listener, up to the limit. Each goes in
-// the table, is made non-blocking and is watched for input under the token
-// `slot + 1` (the listener is token 0).
-fn accept_all[&h, &l, &c](heap: &!h Heap, conn: transport.Links, listener: &!l Listener, core: &!c tables.Core, now: int) -> [heap, conn_accept, poll] transport.Links {
+// Take every connection waiting on the plain listener (or, with `secure`, the secure one), up to the limit. Each goes in
+// the table and is begun by the transport, which watches it under the token `slot + 1` (the plain listener is token 0).
+fn accept_all[&h, &o, &c](heap: &!h Heap, conn: transport.Links, listener: &!o option.Option[Listener], core: &!c tables.Core, now: int, secure: bool) -> [heap, conn_accept, poll] transport.Links {
     let cd = contents(core.cs);
     var table = conn;
     var more = true;
     while more {
-        match tcp_accept(listener) {
-            Accepted::Ok(c) => {
-                var held = 0;
-                borrow table as &tt in {
-                    held = transport.live(tt);
-                }
-                if held >= core.limit {
-                    conn_close(c);
-                    tables.refuse(core, rules.connections(), 0 - 1, 0 - 1, 0);
-                } else {
-                    let (grown, slot) = transport.put(heap, table, c);
-                    table = grown;
-                    if slot >= 0 {
-                        let p = tables.c_stride() * slot;
-                        cd[p] = 1;
-                        cd[p + 1] = 0;
-                        cd[p + 2] = now;
-                        cd[p + 3] = 0 - 1;
-                        cd[p + 4] = 0;
-                        cd[p + 5] = 1;
-                        cd[p + 6] = 0;
-                        cd[p + 7] = now;
-                        cd[p + 8] = 0;
-                        cd[p + 9] = 0;
-                        cd[p + 10] = 0;
-                        cd[p + 11] = cd[p + 11] + 1;
-                        borrow mut table as &!ct in {
-                            if transport.nonblocking(ct, slot) != 0 || transport.nodelay(ct, slot) != 0 || transport.watch(ct, core.poller, slot, slot + 1, 1) != 0 {
-                                shut(ct, core, slot);
+        match listener {
+            option.Option::Some(l) => {
+                match tcp_accept(l) {
+                    Accepted::Ok(c) => {
+                        var held = 0;
+                        borrow table as &tt in {
+                            held = transport.live(tt);
+                        }
+                        if held >= core.limit {
+                            conn_close(c);
+                            tables.refuse(core, rules.connections(), 0 - 1, 0 - 1, 0);
+                        } else {
+                            let (grown, slot) = transport.put(heap, table, c, secure);
+                            table = grown;
+                            if slot >= 0 {
+                                let p = tables.c_stride() * slot;
+                                cd[p] = 1;
+                                cd[p + 1] = 0;
+                                cd[p + 2] = now;
+                                cd[p + 3] = 0 - 1;
+                                cd[p + 4] = 0;
+                                cd[p + 5] = 1;
+                                cd[p + 6] = 0;
+                                cd[p + 7] = now;
+                                cd[p + 8] = 0;
+                                cd[p + 9] = 0;
+                                cd[p + 10] = 0;
+                                cd[p + 11] = cd[p + 11] + 1;
+                                if secure {
+                                    // The time to CONNECT starts when the handshake is done (`step` sets it then); the
+                                    // transport bounds the handshake itself.
+                                    cd[p + 7] = now + 1000000;
+                                }
+                                borrow mut table as &!ct in {
+                                    if transport.begin(ct, core.poller, slot, secure, now) != 0 {
+                                        shut(ct, core, slot);
+                                    }
+                                }
+                            } else if slot == 0 - 2 {
+                                tables.refuse(core, rules.tls_connections(), 0 - 1, 0 - 1, 0);
                             }
                         }
                     }
+                    Accepted::Again => {
+                        more = false;
+                    }
+                    Accepted::Failed(e) => {
+                        more = false;
+                    }
                 }
             }
-            Accepted::Again => {
-                more = false;
-            }
-            Accepted::Failed(e) => {
+            option.Option::None => {
                 more = false;
             }
         }
@@ -1085,7 +1174,10 @@ fn sweep[&t, &c](tab: &!t transport.Links, core: &!c tables.Core, now: int) -> [
     while k < transport.slots(tab) {
         let p = tables.c_stride() * k;
         if cd[p] == 1 {
-            if cd[p + 3] < 0 {
+            let late = transport.expired(tab, k, now);
+            if late >= 0 {
+                close_conn(tab, core, k, late, false, true);
+            } else if cd[p + 3] < 0 {
                 if now - cd[p + 7] > core.connect_to {
                     close_conn(tab, core, k, rules.connect_timeout(), false, true);
                 }
@@ -1103,10 +1195,12 @@ fn sweep[&t, &c](tab: &!t transport.Links, core: &!c tables.Core, now: int) -> [
 // Wait for the network, at most `timeout_ms`, and do the I/O that is ready: take
 // new connections, read and handle packets, flush what was queued, close the ones
 // that have gone quiet. By value, because accepting replaces the connection table.
-pub fn wait[&h, &k, &l](heap: &!h Heap, b: Broker, clock: &k Clock, listener: &!l Listener, timeout_ms: int) -> [heap, conn_accept, conn_read, conn_write, poll, clock] Broker {
-    let Broker { tab, core } = b;
+pub fn wait[&h, &k](heap: &!h Heap, b: Broker, clock: &k Clock, timeout_ms: int) -> [heap, conn_accept, conn_read, conn_write, poll, clock] Broker {
+    let Broker { tab, core, plain, secure } = b;
     var table = tab;
     var state = core;
+    var plain_l = plain;
+    var secure_l = secure;
     var ready = 0 - 1;
     borrow mut state as &!cw in {
         cw.nforeign = 0;
@@ -1121,6 +1215,10 @@ pub fn wait[&h, &k, &l](heap: &!h Heap, b: Broker, clock: &k Clock, listener: &!
         cw.now = now;
         cw.now_ms = ms - cw.start_ms;
     }
+    var cw_limit = 0;
+    borrow state as &cr in {
+        cw_limit = cr.limit;
+    }
     if ready >= 0 {
         // New connections first, while the table is ours to grow.
         var j = 0;
@@ -1130,8 +1228,16 @@ pub fn wait[&h, &k, &l](heap: &!h Heap, b: Broker, clock: &k Clock, listener: &!
                 token = contents(cr.events)[2 * j];
             }
             if token == 0 {
-                borrow mut state as &!cw in {
-                    table = accept_all(heap, table, listener, cw, now);
+                borrow mut plain_l as &!pr in {
+                    borrow mut state as &!cw in {
+                        table = accept_all(heap, table, pr, cw, now, false);
+                    }
+                }
+            } else if token > 0 && token == cw_limit + 1 {
+                borrow mut secure_l as &!sr in {
+                    borrow mut state as &!cw in {
+                        table = accept_all(heap, table, sr, cw, now, true);
+                    }
                 }
             }
             j = j + 1;
@@ -1142,7 +1248,9 @@ pub fn wait[&h, &k, &l](heap: &!h Heap, b: Broker, clock: &k Clock, listener: &!
                 while j < ready {
                     let token = contents(cw.events)[2 * j];
                     let ev = contents(cw.events)[2 * j + 1];
-                    if token > cw.limit {
+                    if token == cw.limit + 1 {
+                        // The secure listener: its connections were taken above.
+                    } else if token > cw.limit {
                         if 2 * cw.nforeign + 1 < len(contents(cw.foreign)) {
                             contents(cw.foreign)[2 * cw.nforeign] = token;
                             contents(cw.foreign)[2 * cw.nforeign + 1] = ev;
@@ -1156,8 +1264,16 @@ pub fn wait[&h, &k, &l](heap: &!h Heap, b: Broker, clock: &k Clock, listener: &!
             }
         }
     }
+    let unix = clock_unix_ms(clock);
     borrow mut table as &!tw in {
         borrow mut state as &!cw in {
+            // What the transport may start (handshakes), and what it ended: pairs of (slot, rule) to close here.
+            let ended = transport.tick(tw, cw.poller, now, unix, contents(cw.dead));
+            var d = 0;
+            while d < ended {
+                close_conn(tw, cw, contents(cw.dead)[2 * d], contents(cw.dead)[2 * d + 1], true, true);
+                d = d + 1;
+            }
             flush_dirty(tw, cw);
             if now != cw.last_sweep {
                 cw.last_sweep = now;
@@ -1171,7 +1287,7 @@ pub fn wait[&h, &k, &l](heap: &!h Heap, b: Broker, clock: &k Clock, listener: &!
             }
         }
     }
-    return Broker { tab: table, core: state };
+    return Broker { tab: table, core: state, plain: plain_l, secure: secure_l };
 }
 
 // The poller, to register handles that are not connections (the signal watch).
@@ -1181,7 +1297,12 @@ pub fn poller[&b](b: &!b Broker) -> [] &!b Poller {
 
 // The first token the application may register a handle under.
 pub fn first_token[&b](b: &b Broker) -> [] int {
-    return b.core.limit + 1;
+    return b.core.limit + 2;
+}
+
+// The transport the broker holds, for what only a variant does with it (`app.links`).
+pub fn links[&b](b: &!b Broker) -> [] &!b transport.Links {
+    return b.tab;
 }
 
 pub fn foreign_count[&b](b: &b Broker) -> [] int {
