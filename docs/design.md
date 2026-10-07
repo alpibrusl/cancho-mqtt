@@ -255,9 +255,17 @@ only; every write is checked and a failed or short write ends the stream with `i
 (`toolbox.out`). **Deviation from D7:** a record carries `t_ms`, monotonic milliseconds since start, because a
 server's log without time is not a log, and the broker holds the `clock` label by design (section 2). It carries no
 wall-clock time (`clock_unix_ms`), so output is reproducible up to those offsets, and the record order is deterministic.
-**Open risk, with a gate (G9):** a log reader that stops reading blocks `write` on stdout and would stall the single
-poller. Section 12 lists it; it is measured in issue #5, and the broker's behaviour (drop and count, or end the
-stream) is decided from that measurement, not argued here.
+**Measured, and not fixed (G9, Gap 8): a log reader that stops reading stalls the broker.** The log is written to standard output
+with a blocking write, and cancho has no non-blocking write for it, so once the pipe is full (64 KiB on Linux) the one thread blocks
+and no client is answered. Measured with the pipe shrunk to 4 KiB and `--stats-seconds 1`: a client's PINGREQ went unanswered after
+7 s (`test_a_log_reader_that_stops_reading_stalls_the_broker`, which asserts the stall, so that a language that gains a non-blocking
+write fails it and this paragraph gets corrected). How fast the log fills, measured: **about 86 bytes a second idle (the `stats`
+record every 10 s), so 13 minutes to fill 64 KiB; about 1.8 KB a second under a flood of refusals, so 36 seconds**. The volume is
+bounded (refusals are rate-limited to one event per rule per second, the counters stay exact) but a reader that stops is not tolerated.
+So: run the broker with standard output going to a supervisor or a file, never to a pipe a program may stop reading; and
+`--stats-seconds 0` lengthens the interval but does not remove the risk. *Corrected: this section said the stall would be decided from a
+measurement (drop and count, or end the stream); neither is possible today, and gate G9 said "a stalled log reader does not stall
+clients", which is false.*
 
 ## 6. Backpressure: drop the newest, then disconnect
 
@@ -433,7 +441,7 @@ mutant is not a gate.
 | G6 | memory (#8, #11) | RSS after a 10-minute churn run is within the printed budget plus a fixed overhead recorded in the first run | mutant that leaks a session on takeover |
 | G7 | hardening (#11) | a fixed seed set (recorded in the repo) of byte streams split at random points, malformed and oversized lengths, slow and resetting clients, causes no trap; every bound tested at its edge | mutant that removes a bounds check |
 | G8 | style | `cancho fmt --check`, no file over 2,000 lines, every rule in §5 has a test naming its tag | a 2,001-line file |
-| G9 | agent surface (section 5a; issue #5) | `introspect` validates against its schema; its flag table equals section 4; every rule tag has a fixture; each process-level error is valid envelope JSON with the exit code the catalogue says; SIGTERM yields an `end` record with `complete:true`; a stalled log reader does not stall clients | a build whose flag default differs from section 4; a catalogue tag with no fixture |
+| G9 | agent surface (section 5a; issue #5) | `introspect` validates against its schema; its flag table equals section 4; every rule tag has a fixture; each process-level error is valid envelope JSON with the exit code the catalogue says; SIGTERM yields an `end` record with `complete:true`; **(corrected: a stalled log reader stalls the broker, and that is asserted as a known limitation, section 5a)** | a build whose flag default differs from section 4; a catalogue tag with no fixture |
 
 Mutants of each new piece must all be killed or individually explained in the PR that adds the piece.
 
@@ -480,7 +488,9 @@ From `docs/native-sockets.md`, `docs/listen.md`, `docs/tls-nonblocking.md`:
 - **Gap 6: `std.conns.Table` fields are readable** (`native-sockets.md` §6 correction); no effect here beyond noting
   that tickets are not authority.
 - **Gap 7: `toolbox.describe` has no shape for rules that are not exit statuses** (section 5a). To be proposed to `cancho-tools` (not yet raised); until accepted the broker publishes them with `mqtt rules`.
-- **Gap 8: standard output blocks.** A log reader that stops reading would stall the poller (section 5a, gate G9). Not measured yet.
+- **Gap 8: standard output blocks.** A log reader that stops reading stalls the poller: **measured** (section 5a): 7 s with a 4 KiB pipe;
+  13 minutes to fill 64 KiB idle, 36 s under a flood. cancho has no non-blocking write for `Io`; to be raised there (a write that
+  answers `Again`, or an `Io` the poller can watch). Until then the operator must keep reading.
 - **Gap 9: `toolbox.describe` prints the toolbox's evidence list, not this program's.** `mqtt introspect` says its gates
   are "M1 schema conformance ... M9 memory flatness", "each a test in cancho-tools/tests/conformance". For this broker that
   is false: its gates are G1 to G9 of section 10, in `tests/` and `scripts/` here. To be proposed upstream as a field of

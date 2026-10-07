@@ -1,17 +1,19 @@
 """The agent-first surface (design section 5a, gate G9): what a program reading
 `mqtt` can rely on without reading prose."""
 
+import fcntl
 import json
 import pathlib
 import re
 import signal
 import subprocess
+import sys
 import time
 import unittest
 
 import jsonschema
 
-from harness import BINARY, ROOT, Broker, connect_packet, free_port, records, run
+from harness import BINARY, PINGREQ, ROOT, Broker, connect_packet, free_port, records, run
 
 SCHEMA = json.loads((ROOT / "schemas" / "mqtt.v1.json").read_text())
 VALIDATOR = jsonschema.Draft202012Validator(SCHEMA)
@@ -70,6 +72,31 @@ class Surface(unittest.TestCase):
         # Every numeric flag is either a bound in the table or one of the two the text names.
         extra = set(flags) - {r[0] for r in rows}
         self.assertEqual(extra, {"port", "stats-seconds", "format"})
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "F_SETPIPE_SZ is Linux's")
+    def test_a_log_reader_that_stops_reading_stalls_the_broker(self):
+        # A KNOWN LIMITATION, asserted (design section 5a and Gap 8): the log goes to standard output with a
+        # blocking write and cancho has no non-blocking one, so once the pipe is full the one thread blocks and no
+        # client is answered. The pipe is shrunk to 4 KiB so that it fills in seconds. If this test ever fails
+        # because the broker kept answering, the language has gained what was missing: correct section 5a, gate
+        # G9 and Gap 8, and turn this into a test that the broker does NOT stall.
+        broker = Broker("--stats-seconds", "1", "--sys-interval", "0")
+        self.addCleanup(broker.__exit__, None, None, None)
+        fcntl.fcntl(broker.proc.stdout.fileno(), 1031, 4096)      # F_SETPIPE_SZ; nothing reads the pipe from here on
+        client = broker.client()
+        self.addCleanup(client.close)
+        client.connect("probe", keepalive=0)
+        stalled = None
+        start = time.time()
+        while time.time() - start < 40:
+            try:
+                client.send(PINGREQ)
+                client.expect(13, timeout=1.5)
+            except Exception:
+                stalled = time.time() - start
+                break
+            time.sleep(0.25)
+        self.assertIsNotNone(stalled, "the broker kept answering with nobody reading its log: Gap 8 is closed, update the design")
 
     def test_every_flag_is_harmless_to_authority(self):
         for f in self.introspect()["flags"]:

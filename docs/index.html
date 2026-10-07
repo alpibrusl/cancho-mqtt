@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>cancho-mqtt</title>
+<meta name="description" content="An MQTT broker you can reason about: one thread, memory sized at start, every limit a flag, every refusal a named rule, and an authority report the compiler proves. Written in cancho. Alpha, for a trusted network.">
+<meta property="og:title" content="cancho-mqtt">
+<meta property="og:description" content="An MQTT broker you can reason about. One thread, bounded memory, named refusals, checked authority. Alpha.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://alpibrusl.github.io/cancho-mqtt/">
+<meta property="og:image" content="https://alpibrusl.github.io/cancho-mqtt/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="cancho-mqtt: a rock face in a blue circle with the letters MQTT.">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" type="image/png" href="favicon.png">
+<style>
+:root {
+  --bg: #ffffff; --fg: #1b2c4b; --muted: #4d5b73; --rule: #d9dde4; --card: #f4f6f9;
+  --brand: #2c5d92; --brand-fg: #ffffff; --code-bg: #101c33; --code-fg: #e7edf7; --warn: #8a4b00; --warn-bg: #fff4e0;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1626; --fg: #e7edf7; --muted: #a7b3c7; --rule: #26324a; --card: #15203a;
+    --brand: #6ea3dd; --brand-fg: #0e1626; --code-bg: #0a1120; --code-fg: #dbe5f5; --warn: #ffcf8a; --warn-bg: #2b2112;
+  }
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 17px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+a { color: var(--brand); }
+.wrap { max-width: 920px; margin: 0 auto; padding: 0 16px; }
+header.hero { text-align: center; padding: 40px 0 24px; }
+header.hero img { background: #fff; border-radius: 24px; padding: 8px; width: 240px; max-width: 60vw; height: auto; }
+h1 { font-size: clamp(1.9rem, 5vw, 2.8rem); line-height: 1.15; margin: 12px 0 8px; }
+h2 { font-size: 1.6rem; margin: 48px 0 8px; line-height: 1.25; }
+h3 { font-size: 1.1rem; margin: 20px 0 4px; }
+.lede { font-size: 1.15rem; color: var(--muted); max-width: 40em; margin: 0 auto 16px; }
+.badges { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin: 12px 0 20px; }
+.badge { border: 1px solid var(--rule); border-radius: 999px; padding: 2px 12px; font-size: .9rem; color: var(--muted); }
+.badge.alpha { color: var(--warn); background: var(--warn-bg); border-color: var(--warn); }
+.cta { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+.btn { display: inline-block; padding: 10px 20px; border-radius: 8px; text-decoration: none; font-weight: 600; border: 2px solid var(--brand); }
+.btn.primary { background: var(--brand); color: var(--brand-fg); }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); gap: 16px; margin: 24px 0; }
+.card { background: var(--card); border: 1px solid var(--rule); border-radius: 10px; padding: 16px 18px; }
+.card h3 { margin-top: 0; }
+pre, .cards > *, .two > * { min-width: 0; }
+pre { background: var(--code-bg); color: var(--code-fg); border-radius: 8px; padding: 14px 16px; overflow-x: auto; font: 13.5px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .92em; }
+p code, li code, td code { background: var(--card); border: 1px solid var(--rule); border-radius: 4px; padding: 0 4px; }
+pre code { background: none; border: 0; padding: 0; font-size: inherit; }
+table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: .96rem; }
+th, td { text-align: right; padding: 6px 10px; border-bottom: 1px solid var(--rule); }
+th:first-child, td:first-child { text-align: left; }
+th { color: var(--muted); font-weight: 600; }
+tr:first-child td { font-weight: 600; }
+.note { background: var(--warn-bg); border-left: 4px solid var(--warn); padding: 10px 14px; border-radius: 4px; color: var(--fg); }
+ul.plain { padding-left: 1.2em; }
+ul.plain li { margin: 6px 0; }
+.two { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 24px; }
+footer { border-top: 1px solid var(--rule); margin: 56px 0 32px; padding-top: 16px; color: var(--muted); font-size: .95rem; }
+@media (max-width: 480px) { body { font-size: 16px; } pre { font-size: 12.5px; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <img src="logo.png" alt="cancho-mqtt: a rock face in a blue circle, the letters MQTT above it" width="240" height="240">
+  <h1>An MQTT broker you can reason about.</h1>
+  <p class="lede">One thread, memory sized at start, every limit a flag, every refusal a named rule with an exact count, and an authority report the compiler proves: this program cannot touch a file, dial out or call foreign code.</p>
+  <div class="badges">
+    <span class="badge alpha">alpha &middot; for a trusted network</span>
+    <span class="badge">MQTT 3.1.1, QoS 0, 1, 2</span>
+    <span class="badge">written in cancho</span>
+    <span class="badge">EUPL-1.2</span>
+  </div>
+  <div class="cta">
+    <a class="btn primary" href="https://github.com/alpibrusl/cancho-mqtt/releases/download/latest/mqtt-linux-x86_64" download>Download the binary</a>
+    <a class="btn" href="#try">Try it</a>
+    <a class="btn" href="https://github.com/alpibrusl/cancho-mqtt">Source on GitHub</a>
+  </div>
+</header>
+
+<div class="note"><strong>Alpha.</strong> Anonymous, in memory, plain TCP: no authentication, no TLS, nothing survives a restart, and no long soak has been run. Use it behind something that does those, or where that is acceptable. <a href="#cannot">What it cannot do yet.</a></div>
+
+<div class="cards" id="why">
+  <div class="card"><h3>Bounded</h3><p>The tables are allocated at start from flags, each with a default and a ceiling. Memory has a stated limit and does not follow the workload; an idle connection costs about 0.3&nbsp;KiB.</p></div>
+  <div class="card"><h3>Checkable</h3><p>The compiler derives what the program can reach and CI fails if the binary differs from the committed report: no files, no outbound connections, no foreign code.</p></div>
+  <div class="card"><h3>Readable</h3><p>Errors are one JSON line with a rule, a hint and, where safe, a repair. The log is bounded NDJSON that ends with an <code>end</code> record. <code>introspect</code>, <code>rules</code> and <code>skill</code> are generated from the program's own tables.</p></div>
+</div>
+
+<h2 id="flow">One complete flow</h2>
+<p>A refusal with the command that fixes it, the broker, a retained reading, a <code>$SYS</code> statistic, and what the compiler proved the program can reach. This is the built program's own output; a check in CI fails if this page drifts from it.</p>
+<!-- gen:flow -->
+<pre><code># A bound below its smallest value is refused, with the command that fixes it
+$ mqtt serve --port 1883 --max-packet 10
+{&quot;type&quot;:&quot;error&quot;,&quot;error&quot;:{&quot;code&quot;:&quot;INVALID_ARGS&quot;,&quot;rule&quot;:&quot;args.out-of-range&quot;,&quot;message&quot;:&quot;a flag&#x27;s value is outside the range this broker accepts&quot;,&quot;hint&quot;:&quot;use a value within the range introspect names for the flag&quot;,&quot;repair&quot;:{&quot;kind&quot;:&quot;retry&quot;,&quot;argv&quot;:[&quot;mqtt&quot;,&quot;serve&quot;,&quot;--port&quot;,&quot;1883&quot;,&quot;--max-packet&quot;,&quot;64&quot;]},&quot;detail&quot;:{&quot;flag&quot;:&quot;max-packet&quot;,&quot;value&quot;:10,&quot;minimum&quot;:64,&quot;ceiling&quot;:262144}}}
+# exit status 2
+
+# Run it; a client keeps a retained reading; another reads it back; a statistic
+$ mqtt serve --port 1883 &gt; broker.log &amp;
+$ head -1 broker.log
+{&quot;type&quot;:&quot;listening&quot;,&quot;port&quot;:1883,&quot;max_connections&quot;:1024,&quot;max_packet&quot;:16384,&quot;memory_bytes&quot;:73099264,&quot;t_ms&quot;:0}
+$ mosquitto_pub -p 1883 -t sensors/door -m open -r -q 1
+$ mosquitto_sub -p 1883 -t &#x27;sensors/#&#x27; -v -q 1 -C 1
+sensors/door open
+$ mosquitto_sub -p 1883 -t &#x27;$SYS/broker/clients/connected&#x27; -v -C 1
+$SYS/broker/clients/connected 1
+$ kill -TERM %1; jq -c &#x27;select(.type==&quot;end&quot;) | {ok, complete, publishes, delivered}&#x27; broker.log
+{&quot;ok&quot;:true,&quot;complete&quot;:true,&quot;publishes&quot;:1,&quot;delivered&quot;:2}
+
+# What the compiler proved this program can reach
+$ mqtt introspect | jq -c &#x27;.authority | {bounded, effects}&#x27;
+{&quot;bounded&quot;:true,&quot;effects&quot;:[&quot;args&quot;,&quot;clock&quot;,&quot;conn_accept&quot;,&quot;conn_read&quot;,&quot;conn_write&quot;,&quot;err_write&quot;,&quot;heap&quot;,&quot;io_write&quot;,&quot;net_in&quot;,&quot;poll&quot;,&quot;signals&quot;,&quot;signals_read&quot;]}</code></pre>
+<!-- /gen:flow -->
+
+<h2 id="what">What is in it</h2>
+<div class="two">
+<ul class="plain">
+  <li><strong>MQTT 3.1.1</strong>, and 3.1 clients (<code>MQIsdp</code>).</li>
+  <li><strong>QoS 0, 1 and 2</strong>, an in-flight window, DUP redelivery on resume.</li>
+  <li><strong>Clean and persistent sessions</strong>, takeover, wills, keep-alive at 1.5&times;.</li>
+  <li><strong>Retained messages</strong> in a fixed table.</li>
+</ul>
+<ul class="plain">
+  <li><strong>Bounded queues</strong> that drop the newest message for a slow subscriber, count it, and close a connection that makes no write progress.</li>
+  <li><strong><code>$SYS</code></strong>: 17 topics under Mosquitto's names.</li>
+  <li><strong>28 named refusals</strong>, each with a fixture and an exact counter.</li>
+  <li><strong>Every bound a flag</strong>, listed with its ceiling by <code>mqtt introspect</code>.</li>
+</ul>
+</div>
+
+<h2 id="break">We try to break it</h2>
+<p>Claims are measured, and a claim found false is corrected where it was made. Behind this page:</p>
+<ul class="plain">
+  <li><!-- gen:counts -->155 black-box tests that read only what a client sees, and 20 unit tests of the codec, the topic trie and the flag table<!-- /gen:counts -->.</li>
+  <li><strong>A differential against Mosquitto 2.0.18.</strong> The same scripted and generated scenarios run against both brokers and what each client sees is compared, including QoS 2, MQTT 3.1 clients and the <code>$SYS</code> counters. The differences that remain are written down and asserted, so one nobody wrote down fails.</li>
+  <li><strong>Hostile input.</strong> Thousands of malformed, split and oversized connections, slowloris, tight bounds; no input reaches a panic.</li>
+  <li><strong>Memory flat under churn</strong>, asserted, with transparent huge pages off (they make a lazily touched table grow in 2&nbsp;MiB steps).</li>
+  <li><strong>The authority gate must be able to fail.</strong> Four mutants (a file read, a foreign call, a ceiling missing a label, a stale embedded report) are applied to a copy and each must be refused.</li>
+  <li><strong>Real clients</strong>: <code>paho-mqtt</code> and the Mosquitto command line tools.</li>
+</ul>
+
+<h2 id="fast">How fast</h2>
+<p>Supporting evidence, not the point. One core each, one shared 4-core VM, defaults for every broker. <strong>Read the caveats first.</strong> The QoS&nbsp;0 figure for this broker is a lower bound: it used about two thirds of its core, so the load generator was the limit. Its QoS&nbsp;2 figure counts deliveries, and this broker drops the newest message under overload where others slow the publishers, so only about <!-- gen:ratio -->13%<!-- /gen:ratio --> of what was offered arrived.</p>
+<!-- gen:numbers -->
+<p>Deliveries a second at the subscribers, 4 publishers and 100 subscribers going as fast as they can, median of three or five runs:</p><table><thead><tr><th>one core</th><th>QoS 0</th><th>QoS 1</th><th>QoS 2</th></tr></thead><tbody><tr><td>cancho-mqtt</td><td>1222k</td><td>199k</td><td>112k</td></tr><tr><td>Mosquitto 2.0.18</td><td>344k</td><td>175k</td><td>9k</td></tr><tr><td>NanoMQ</td><td>107k</td><td>72k</td><td>20k</td></tr><tr><td>EMQX 5.8.6</td><td>57k</td><td>36k</td><td>20k</td></tr><tr><td>VerneMQ 2.2.1</td><td>307k</td><td>11k</td><td>8k</td></tr></tbody></table>
+<!-- /gen:numbers -->
+<p><!-- gen:latency -->Latency with one message in flight: p50 42 microseconds (Mosquitto 46; the probe is Python, so a few microseconds either way is not evidence). Memory with 5,000 idle connections: 14 MiB (Mosquitto 38).<!-- /gen:latency --> The conditions, what was not measured, and the results that are not explained are in <a href="https://github.com/alpibrusl/cancho-mqtt/blob/main/docs/benchmark.md">docs/benchmark.md</a>.</p>
+
+<h2 id="cases">Where it would earn its place</h2>
+<p>Three scenarios, each run against the built program; <code>scripts/site.py --check</code> fails CI if the output drifts. They are illustrations of the properties above, not reports of deployments: nobody runs this in production yet.</p>
+
+<h3>1. Plant-floor gateways and dashboards: last value and presence</h3>
+<p>Operators want the state of every line (or charger, or pump) at a glance, including the ones that just lost power. Retained messages hold the last reading, a will turns a dead gateway into an <code>offline</code> message, and a dashboard that connects later needs no polling.</p>
+<!-- gen:case_presence -->
+<pre><code># A gateway on the plant network keeps its last reading and its state where anyone can read them
+$ mosquitto_pub -p 1883 -t plant/line1/temp -m 71.5 -r -q 1
+$ mosquitto_pub -p 1883 -t plant/line1/status -m online -r -q 1
+
+# It registered a will; the power is cut (SIGKILL, no DISCONNECT) and the broker publishes the will
+$ mosquitto_sub -p 1883 -i gw-line1 -t gw/in --will-topic plant/line1/status --will-payload offline --will-retain -q 1 &amp;
+$ kill -9 $!
+
+# A dashboard that connects afterwards sees the last state of everything
+$ mosquitto_sub -p 1883 -t &#x27;plant/#&#x27; -v -C 2 | sort
+plant/line1/status offline
+plant/line1/temp 71.5</code></pre><!-- /gen:case_presence -->
+
+<h3>2. Test and staging brokers that explain themselves</h3>
+<p>A broker for integration tests should fail loudly and say why. Every refusal is a named rule with a log record a test can assert on, so "the client was disconnected" becomes "<code>limit.packet-size</code>, client <code>auto-1</code>".</p>
+<!-- gen:case_refusal -->
+<pre><code># A test harness sets tight limits and asserts on what the broker refuses, by rule
+$ mqtt serve --port 1883 --max-packet 256 &gt; broker.log &amp;
+$ mosquitto_pub -p 1883 -t sensors/big -m &quot;$(head -c 1000 /dev/zero | tr &#x27;\0&#x27; x)&quot;
+$ jq -c &#x27;select(.type==&quot;refusal&quot;) | {rule, client_id}&#x27; broker.log
+{&quot;rule&quot;:&quot;limit.packet-size&quot;,&quot;client_id&quot;:&quot;auto-1&quot;}
+
+# and what the broker does for that rule is data too
+$ mqtt rules | jq -c &#x27;select(.tag==&quot;limit.packet-size&quot;)&#x27;
+{&quot;type&quot;:&quot;rule&quot;,&quot;tag&quot;:&quot;limit.packet-size&quot;,&quot;action&quot;:&quot;close&quot;}</code></pre><!-- /gen:case_refusal -->
+
+<h3>3. Small fixed boxes: size it before you deploy it</h3>
+<p>On an edge gateway or a shared host the question is how much memory the broker will take. The tables are allocated at start from the flags, so the footprint is a number printed on the first log line, not a function of the workload.</p>
+<!-- gen:case_sizing -->
+<pre><code># Know the memory before it accepts a connection: it is computed from the flags and printed at start
+$ mqtt serve --port 1883 --max-connections 1024 | head -1
+{&quot;type&quot;:&quot;listening&quot;,&quot;port&quot;:1883,&quot;max_connections&quot;:1024,&quot;max_packet&quot;:16384,&quot;memory_bytes&quot;:73099264,&quot;t_ms&quot;:0}
+$ mqtt serve --port 1883 --max-connections 8192 --queue-bytes 65536 | head -1
+{&quot;type&quot;:&quot;listening&quot;,&quot;port&quot;:1883,&quot;max_connections&quot;:8192,&quot;max_packet&quot;:16384,&quot;memory_bytes&quot;:713771008,&quot;t_ms&quot;:0}</code></pre><!-- /gen:case_sizing -->
+
+<h2 id="fits">Where it fits</h2>
+<div class="two">
+<div>
+<h3>Built for</h3>
+<ul class="plain">
+  <li>A broker on a trusted network, or behind a proxy that does TLS and authentication.</li>
+  <li>Places where "why was this refused?" must have an answer a script can read.</li>
+  <li>Small footprints: bounded memory, one process, no runtime to install.</li>
+  <li>Agents that configure and inspect their own infrastructure.</li>
+</ul>
+</div>
+<div>
+<h3>Not for (yet)</h3>
+<ul class="plain">
+  <li>The public internet: no authentication, no TLS.</li>
+  <li>Anything that must survive a restart: nothing is persisted.</li>
+  <li>MQTT 5, WebSockets, shared subscriptions, clustering.</li>
+  <li>Workloads that need more than one core in one process.</li>
+</ul>
+</div>
+</div>
+
+<h2 id="cannot">What it cannot do yet</h2>
+<ul class="plain">
+  <li><strong>No authentication, no TLS.</strong> cancho now has a TLS 1.3 server (not independently reviewed); this broker has no transport layer for it yet.</li>
+  <li><strong>Nothing survives a restart</strong>: sessions, queues and retained messages are in memory.</li>
+  <li><strong>A log reader that stops reading stalls the broker.</strong> The log is written to standard output with a blocking write. Measured: 13 minutes to fill a 64&nbsp;KiB pipe idle, 36 seconds under a flood of refusals. Run it under something that always reads. A test pins this.</li>
+  <li><strong><code>$SYS</code></strong> has no <code>load/*</code>, <code>heap/*</code> or <code>store/*</code> topics.</li>
+  <li><strong>No soak yet</strong>, no run of days.</li>
+</ul>
+<p>What each missing piece would cost, in what order, and what it would do to the authority report: <a href="https://github.com/alpibrusl/cancho-mqtt/blob/main/docs/later.md">docs/later.md</a>.</p>
+
+<h2 id="download">Download</h2>
+<p><a class="btn primary" href="https://github.com/alpibrusl/cancho-mqtt/releases/download/latest/mqtt-linux-x86_64" download>mqtt-linux-x86_64</a> <a class="btn" href="https://github.com/alpibrusl/cancho-mqtt/releases/tag/latest">checksum, authority report and release notes</a></p>
+<p>The file is the binary the CI gate built and tested on the commit it names, from the latest push to <code>main</code>: the same formatting, unit, conformance, interop and differential checks, and the authority report it was compared with. It is a dynamically linked x86-64 Linux executable built on Ubuntu, so it needs a glibc at least that new; there are no builds for other systems yet. Verify it with <code>sha256sum -c mqtt-linux-x86_64.sha256</code>, then <code>chmod +x mqtt-linux-x86_64 &amp;&amp; ./mqtt-linux-x86_64 introspect</code>.</p>
+
+<h2 id="try">Build it yourself</h2>
+<p>You need <code>git</code>, Rust, <code>gcc</code> and Python 3; the <code>mosquitto-clients</code> package to talk to it.</p>
+<pre><code>git clone https://github.com/alpibrusl/cancho                         # the compiler
+git clone https://github.com/alpibrusl/cancho-mqtt &amp;&amp; cd cancho-mqtt
+REV=$(sed -n 's/^cancho *= *"\(.*\)".*/\1/p' cancho.toml)             # the compiler these sources need
+(cd ../cancho &amp;&amp; git fetch -q origin &amp;&amp; git checkout "$REV" &amp;&amp; cargo build --release -p cancho)
+export PATH=$PWD/../cancho/target/release:$PATH
+cancho build                                                          # builds build/mqtt
+build/mqtt serve --port 1883 &gt; broker.log &amp;
+mosquitto_sub -p 1883 -t 'sensors/#' -v &amp;
+mosquitto_pub -p 1883 -t sensors/door -m open</code></pre>
+
+<footer>
+  <p><a href="https://github.com/alpibrusl/cancho-mqtt">Source</a> &middot; <a href="https://github.com/alpibrusl/cancho-mqtt/blob/main/docs/design.md">Design</a> &middot; <a href="https://github.com/alpibrusl/cancho-mqtt/blob/main/docs/benchmark.md">Benchmark</a> &middot; <a href="https://github.com/alpibrusl/cancho-mqtt/blob/main/docs/conformance.md">Conformance</a> &middot; <a href="https://github.com/alpibrusl/cancho-mqtt/blob/main/docs/later.md">What is next</a> &middot; <a href="https://github.com/alpibrusl/cancho">cancho</a> &middot; EUPL-1.2</p>
+</footer>
+</div>
+</body>
+</html>
