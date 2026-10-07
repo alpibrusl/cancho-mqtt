@@ -1,6 +1,6 @@
 [package]
 name = "cancho-mqtt"
-cancho = "a4572ea3b506e4bcec1c4be43deda1043c11ba9f"   # the compiler these sources were written for
+cancho = "53499414cc244d613f87c714f2ed2098d6974328"   # the compiler these sources were written for
 
 [[bin]]
 name = "mqtt"
