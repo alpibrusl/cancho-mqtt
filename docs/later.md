@@ -69,6 +69,8 @@ filesystem".
 
 ## TLS
 
+> **Update:** TLS is designed in `docs/design.md` section 7d (a second binary, `mqtt-tls`, so that `mqtt` keeps a report with no file label; measured here against cancho's engine). The status below is the earlier reading and is kept for the engine's details.
+
 **Status (2026-10-07): the server is built in cancho; nothing here is built yet.** Read from cancho `main` at `8515d0d`
 (`docs/tls-server.md`, its sections 10 and 11), not from the earlier design:
 - **Step 1, the signer:** `std.ecdsa_sign`, ECDSA P-256 in constant time, with the key parsers (#338).
