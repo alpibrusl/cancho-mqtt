@@ -188,6 +188,16 @@ class Rules(unittest.TestCase):
             sub.recv_publish(timeout=0.5)
         self.logged("limit.qos2-inbound")
 
+    @fixture("protocol.reserved-topic")
+    def test_reserved_topic(self):
+        # A PUBLISH under `$SYS/` is acknowledged as usual and goes nowhere (design section 7b).
+        self.start()
+        c = self.client()
+        c.connect("a")
+        c.send(publish_packet("$SYS/broker/uptime", b"forged", qos=1, pid=3))
+        c.expect(4)
+        self.logged("protocol.reserved-topic")
+
     @fixture("protocol.qos3")
     def test_qos3(self):
         self.start()
@@ -381,7 +391,7 @@ class Rules(unittest.TestCase):
         status, out, err = run("rules")
         self.assertEqual(status, 0)
         tags = [r["tag"] for r in records(out) if r["type"] == "rule"]
-        self.assertEqual(len(tags), 27)
+        self.assertEqual(len(tags), 28)
         self.assertEqual(sorted(tags), sorted(FIXTURES), "rules without a fixture, or fixtures without a rule")
         for name in FIXTURES.values():
             self.assertTrue(hasattr(Rules, name))

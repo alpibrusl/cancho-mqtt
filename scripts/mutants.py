@@ -9,7 +9,7 @@ a gate that does not work, and this script exits 1.
 
 Mutants: a file read, a foreign call, a ceiling that no longer allows a label
 the program uses, and an embedded report that is not the compiler's.
-The compiler is $LEX_SYS, or `lex-sys` on PATH.
+The compiler is $CANCHO, or `cancho` on PATH.
 """
 
 import pathlib
@@ -52,10 +52,10 @@ def edit_main(text, name):
 
 
 def mutants():
-    yield "file_read", "src/main.ls", lambda t: edit_main(t, "file_read")
-    yield "ffi", "src/main.ls", lambda t: edit_main(t, "ffi")
+    yield "file_read", "src/main.cho", lambda t: edit_main(t, "file_read")
+    yield "ffi", "src/main.cho", lambda t: edit_main(t, "ffi")
     yield "ceiling lacks poll", "ceiling.toml", lambda t: t.replace('"poll", ', "", 1)
-    yield "stale embedded report", "generated/mqtt/built.ls", lambda t: t.replace('\\"bounded\\":true', '\\"bounded\\":false', 1)
+    yield "stale embedded report", "generated/mqtt/built.cho", lambda t: t.replace('\\"bounded\\":true', '\\"bounded\\":false', 1)
 
 
 def main():

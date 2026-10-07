@@ -1,4 +1,4 @@
-# Benchmark: where lexsys-mqtt stands
+# Benchmark: where cancho-mqtt stands
 
 > **Status: measured once, on one shared 4-core VM, and caveated below. Not a verdict.** Cells were fixed in
 > `docs/design.md` section 11 before the broker existed; what was actually run differs from that plan in ways listed
@@ -7,7 +7,7 @@
 
 ## What was compared
 
-lexsys-mqtt at `6f7c49f` (and the commits after it that touch only documents, tests and the harness), against the five brokers below,
+cancho-mqtt at `6f7c49f` (and the commits after it that touch only documents, tests and the harness), against the five brokers below,
 each from its stock Docker image at the version the image carries on 2026-10-06, with its defaults except what it needs to
 accept anonymous clients on port 1883. **Not measured:** rumqttd, FlashMQ, Mochi, and any other open-source broker; "the top
 open-source brokers" here means these five.
@@ -19,15 +19,15 @@ open-source brokers" here means these five.
 | EMQX 5.8.6 | `emqx/emqx:5.8.6` | defaults; Erlang |
 | VerneMQ 2.2.1 | `vernemq/vernemq:latest` | listener bound to `0.0.0.0:1883`, anonymous |
 | HiveMQ CE | `hivemq/hivemq-ce:latest` | defaults; JVM with its default heap |
-| lexsys-mqtt | `build/mqtt` mounted into `emqx/emqtt-bench:latest` | defaults except `--max-connections 8192`, so the 5,000-connection cells fit |
+| cancho-mqtt | `build/mqtt` mounted into `emqx/emqtt-bench:latest` | defaults except `--max-connections 8192`, so the 5,000-connection cells fit |
 
 ## Method
 
 One machine (4 vCPUs of a shared cloud VM, 16 GiB, Linux 6.18), brokers one at a time in Docker with `--network host` and
 `--cpuset-cpus` pinned to **1** and then **2** cores; the load generator ([`emqtt-bench`](https://github.com/emqx/emqtt-bench),
-image `emqx/emqtt-bench:latest`) on the last two cores. Each cell is run 3 times (5 for lexsys-mqtt, where the result varies)
+image `emqx/emqtt-bench:latest`) on the last two cores. Each cell is run 3 times (5 for cancho-mqtt, where the result varies)
 and the median is reported with the range of runs in brackets. Mosquitto and NanoMQ are single-threaded or nearly so, as is
-lexsys-mqtt: a second core is for the kernel's loopback work and the other processes, not for the broker's own threads.
+cancho-mqtt: a second core is for the kernel's loopback work and the other processes, not for the broker's own threads.
 
 | Cell | What it does | Reported |
 |---|---|---|
@@ -45,7 +45,7 @@ Medians, with the range of runs in brackets. Final data: `bench/results.json`.
 
 | Broker | Paced QoS 0 (20k/s offered), delivered/s | Saturated QoS 0, delivered/s | Saturated QoS 1, delivered/s | Saturated QoS 2, delivered/s |
 |---|---:|---:|---:|---:|
-| lexsys-mqtt | 20000 (20000-20000) | 1222k (1196k-1245k) | 199.2k (197.4k-199.7k) | 112.4k (110.0k-113.6k) |
+| cancho-mqtt | 20000 (20000-20000) | 1222k (1196k-1245k) | 199.2k (197.4k-199.7k) | 112.4k (110.0k-113.6k) |
 | Mosquitto 2.0.18 | 20000 (19998-20003) | 344k (324k-394k) | 174.8k (171.6k-189.8k) | 9.1k (9.1k-9.1k) |
 | NanoMQ | 19997 (19995-20000) | 107k (103k-111k) | 72.0k (71.0k-72.9k) | 19.9k (19.7k-20.3k) |
 | EMQX 5.8.6 | 20000 (20000-20000) | 57k (56k-60k) | 36.0k (34.5k-36.8k) | 20.2k (19.5k-20.4k) |
@@ -54,7 +54,7 @@ Medians, with the range of runs in brackets. Final data: `bench/results.json`.
 
 | Broker | Latency p50 / p99 / p99.9 µs, 0 idle connections | same, 1,000 idle | Memory MiB: idle / 1,000 / 5,000 connections | 5,000 connected |
 |---|---|---|---|---:|
-| lexsys-mqtt | 42/79/168 | 43/89/482 | 5 / 7 / 14 | 5000 |
+| cancho-mqtt | 42/79/168 | 43/89/482 | 5 / 7 / 14 | 5000 |
 | Mosquitto 2.0.18 | 46/84/226 | 47/87/218 | 2 / 10 / 38 | 5000 |
 | NanoMQ | 66/112/357 | 70/117/182 | 1 / 14 / 68 | 5000 |
 | EMQX 5.8.6 | 71/126/338 | 69/114/165 | 194 / 209 / 313 | 5000 |
@@ -65,7 +65,7 @@ Medians, with the range of runs in brackets. Final data: `bench/results.json`.
 
 | Broker | Paced QoS 0 (20k/s offered), delivered/s | Saturated QoS 0, delivered/s | Saturated QoS 1, delivered/s | Saturated QoS 2, delivered/s |
 |---|---:|---:|---:|---:|
-| lexsys-mqtt | 20000 (20000-20000) | 1037k (982k-1044k) | 162.6k (149.9k-166.7k) | 76.9k (74.3k-84.0k) |
+| cancho-mqtt | 20000 (20000-20000) | 1037k (982k-1044k) | 162.6k (149.9k-166.7k) | 76.9k (74.3k-84.0k) |
 | Mosquitto 2.0.18 | 20000 (19997-20000) | 380k (358k-391k) | 98.9k (98.0k-100.3k) | 9.0k (9.0k-9.0k) |
 | NanoMQ | 20000 (19999-20000) | 182k (169k-184k) | 96.9k (96.1k-99.6k) | 32.9k (32.8k-35.1k) |
 | EMQX 5.8.6 | 20000 (19998-20001) | 86k (85k-87k) | 55.2k (53.6k-56.5k) | 28.7k (28.4k-29.8k) |
@@ -74,7 +74,7 @@ Medians, with the range of runs in brackets. Final data: `bench/results.json`.
 
 | Broker | Latency p50 / p99 / p99.9 µs, 0 idle connections | same, 1,000 idle | Memory MiB: idle / 1,000 / 5,000 connections | 5,000 connected |
 |---|---|---|---|---:|
-| lexsys-mqtt | 43/112/594 | 44/127/369 | 5 / 7 / 14 | 5000 |
+| cancho-mqtt | 43/112/594 | 44/127/369 | 5 / 7 / 14 | 5000 |
 | Mosquitto 2.0.18 | 47/92/135 | 47/94/157 | 4 / 11 / 40 | 5000 |
 | NanoMQ | 87/150/366 | 85/146/294 | 2 / 15 / 69 | 5000 |
 | EMQX 5.8.6 | 73/180/367 | 75/177/362 | 221 / 222 / 349 | 5000 |
@@ -85,25 +85,25 @@ Medians, with the range of runs in brackets. Final data: `bench/results.json`.
 
 **Say these.**
 
-- *Saturated QoS 0 fan-out:* lexsys-mqtt delivers about 1.2M/s on one core and Mosquitto about 344k/s. **But lexsys-mqtt's
+- *Saturated QoS 0 fan-out:* cancho-mqtt delivers about 1.2M/s on one core and Mosquitto about 344k/s. **But cancho-mqtt's
   figure is a lower bound**: the broker used 63% to 66% of its core (2 cores: 15% to 17%), so the load generator, not the
   broker, was the limit (`generator_limited` in the results). The ratio is "at least 3x on this generator", not 3x.
   Mosquitto, NanoMQ, EMQX and VerneMQ ran at 90% to 100% of their cores on one core and are measured at their limits.
-- *Saturated QoS 1 fan-out:* lexsys-mqtt 199k/s against Mosquitto 175k/s on one core (the broker is at 87% to 90% CPU, not
+- *Saturated QoS 1 fan-out:* cancho-mqtt 199k/s against Mosquitto 175k/s on one core (the broker is at 87% to 90% CPU, not
   flagged generator-limited);
-  with two cores the lexsys-mqtt cells are generator-limited (42% to 44% CPU) and Mosquitto's too (36%), so no ordering is claimed.
-- *Saturated QoS 2 fan-out* (added with QoS 2; one core, three runs, HiveMQ CE not run): lexsys-mqtt delivers about 112k/s at 87% to 94%
+  with two cores the cancho-mqtt cells are generator-limited (42% to 44% CPU) and Mosquitto's too (36%), so no ordering is claimed.
+- *Saturated QoS 2 fan-out* (added with QoS 2; one core, three runs, HiveMQ CE not run): cancho-mqtt delivers about 112k/s at 87% to 94%
   of its core, against NanoMQ and EMQX at about 20k/s (both at 92% to 95%) and VerneMQ at about 8k/s. **Read the delivery ratio
-  with it:** lexsys-mqtt's queues are bounded and drop the newest message, so only about 13% of the offered deliveries reached a
+  with it:** cancho-mqtt's queues are bounded and drop the newest message, so only about 13% of the offered deliveries reached a
   subscriber (`delivery_ratio` in the results; NanoMQ about 31%), while EMQX, VerneMQ and Mosquitto delivered nearly all of what the
   publishers offered, because they slow the publishers instead. These are different answers to overload, and "deliveries per
   second" favours dropping. **Mosquitto's 9k/s is not its limit**: it used 15% to 17% of its core (8% on two cores) and is flagged
   generator-limited; why a QoS 2 publisher gets so little through it was not investigated, so no ordering against it is claimed.
-  On two cores lexsys-mqtt's QoS 2 figure (about 77k/s) is generator-limited at 44% CPU and is lower than on one core; that is
+  On two cores cancho-mqtt's QoS 2 figure (about 77k/s) is generator-limited at 44% CPU and is lower than on one core; that is
   not explained.
 - *Latency with one message in flight:* p50 42 microseconds against Mosquitto's 46 and the others' 66 to 161. **The probe is
   Python**, so a few microseconds either way is not evidence; the gap to the Erlang and JVM brokers is.
-- *Memory:* see "Memory" below. An idle connection costs lexsys-mqtt about 0.3 KiB of resident size, against Mosquitto's about 1.1 KiB; at 5,000 connections `docker stats` shows 14 MiB against Mosquitto's 38.
+- *Memory:* see "Memory" below. An idle connection costs cancho-mqtt about 0.3 KiB of resident size, against Mosquitto's about 1.1 KiB; at 5,000 connections `docker stats` shows 14 MiB against Mosquitto's 38.
 - *Paced fan-out:* every broker delivers all 20,000 messages a second; nothing separates them.
 
 **Do not say these.**
@@ -112,7 +112,7 @@ Medians, with the range of runs in brackets. Final data: `bench/results.json`.
   where it stops delivering and its memory climbs to about 4 GiB; its paced result is fine. Every HiveMQ run starts from a
   freshly started container for that reason.
 - *No number here is a throughput limit* of a broker marked generator-limited, and "saturated" means brokers drop messages
-  (all do; lexsys-mqtt counts them as `limit.queue`), so the figure is what reached the subscribers.
+  (all do; cancho-mqtt counts them as `limit.queue`), so the figure is what reached the subscribers.
 - *The connect cell says nothing about the brokers.* Every one connected 5,000 clients at the generator's ceiling.
 
 ## Memory
@@ -121,9 +121,9 @@ The table's figures are `docker stats` (cgroup usage). They include page cache a
 process's resident size: for Mosquitto 5,000 connections is 38 MiB in `docker stats` and about 1.1 KiB a connection of
 resident size by `smaps`; the cgroup `rss` line is 30.6 MiB. **Not reconciled**; I do not know what the cgroup counts
 that the process does not. Per connection, by process resident size (`tests/conformance/test_memory.py` asserts it stays under
-2 KiB): lexsys-mqtt about 0.34 KiB, Mosquitto about 1.1 KiB; idle 5.8 against 7.2 MiB.
+2 KiB): cancho-mqtt about 0.34 KiB, Mosquitto about 1.1 KiB; idle 5.8 against 7.2 MiB.
 
-**What changed.** Until this was fixed, lexsys-mqtt took about 8.3 KiB a connection (53 MiB at 5,000 in `docker stats`, against
+**What changed.** Until this was fixed, cancho-mqtt took about 8.3 KiB a connection (53 MiB at 5,000 in `docker stats`, against
 Mosquitto's 38), because each connection had a fixed input buffer and a fixed session queue and touched one 4 KiB page of each
 (the CONNECT bytes, the SUBACK). Now one scratch buffer takes every read, and a connection holds an input slot only while a
 packet is split across reads; a session holds a queue buffer only while its queue has entries. Both come from pools whose most
@@ -148,15 +148,15 @@ behaviour as the tables elsewhere in the broker, and the bound is still `memory_
 - **Defaults.** Nothing was tuned for any broker. A tuned Mosquitto (queue lengths, `max_inflight_messages`), EMQX with fewer
   schedulers, or HiveMQ CE with a sized heap would move the numbers, in ways this benchmark does not measure.
 - **Memory is `docker stats`**, not resident size; see "Memory" above for the disagreement, which is not resolved.
-- **lexsys-mqtt runs from the load generator's image** because Docker Hub was rate-limiting a pull of a plain OS image; the
+- **cancho-mqtt runs from the load generator's image** because Docker Hub was rate-limiting a pull of a plain OS image; the
   binary needs only glibc 2.34.
 - **The latency probe is not a load test**: one message in flight and nothing else running, so it measures a quiet path, not tail
   latency under load.
 - **The machine was not always otherwise idle.** While the incumbents' runs were in progress I sometimes compiled and ran
-  tests on the same VM, and one of lexsys-mqtt's early runs was disturbed that way and replaced. lexsys-mqtt's reported runs
+  tests on the same VM, and one of cancho-mqtt's early runs was disturbed that way and replaced. cancho-mqtt's reported runs
   were made with the machine idle; the incumbents' were not always. Medians and ranges are shown, and small differences
   should be read with that in mind.
-- **Effort was uneven.** lexsys-mqtt's saturated QoS 0 path was profiled and changed twice (a log event per refused message became a counter; per-message writes became one coalesced write per flush, below). No other broker was tuned. No other broker was tuned.
+- **Effort was uneven.** cancho-mqtt's saturated QoS 0 path was profiled and changed twice (a log event per refused message became a counter; per-message writes became one coalesced write per flush, below). No other broker was tuned. No other broker was tuned.
 
 ## Cells as run, against the plan in the design
 
@@ -169,7 +169,7 @@ is not throughput.
 
 ## What changed because of this
 
-A first run of lexsys-mqtt's saturated QoS 0 cell gave about 300k deliveries/s, half of what the later runs show. Reasoning
+A first run of cancho-mqtt's saturated QoS 0 cell gave about 300k deliveries/s, half of what the later runs show. Reasoning
 from the shape of the cell (about 85,000 messages a second to 100 subscribers, nearly all refused by full queues, so millions
 of refusals a second) found the cost: each refusal left a log event. The count stayed exact and the event is now left once
 a second per rule (`tables.refuse`), the log's `suppressed` figure being derived from the counter. All 112 conformance tests

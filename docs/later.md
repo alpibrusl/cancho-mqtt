@@ -2,8 +2,8 @@
 
 > **Status: decision records for issue #13. No code.** Each section says why the feature is out of v1, what it would cost,
 > what would have to be true to take it up, and what it does to the authority row (`docs/design.md` §2). Claims about this
-> broker are from reading its sources or from `docs/benchmark.md`; claims about lex-sys are from the files named, read for
-> this document at the pin `lex-sys.toml` names; a claim I could not check is marked **not checked**. **Costs are estimates,
+> broker are from reading its sources or from `docs/benchmark.md`; claims about cancho are from the files named, read for
+> this document at the pin `cancho.toml` names; a claim I could not check is marked **not checked**. **Costs are estimates,
 > not measurements, unless a number is attached to a measurement.** None of these is scheduled; the maintainer decides order.
 
 ## Summary
@@ -12,12 +12,12 @@
 |---|---|---|---|
 | QoS 2 | v1 had to be diffable against Mosquitto at QoS 0 and 1 first | **built** (design §7a); about 270 lines of source, a per-session set of identifiers | none |
 | Persistence | it adds file effects and a disk that can stall the one thread | an append log, fsync policy, bounded recovery | `fs` label(s), forbidden today |
-| TLS | lex-sys has a TLS 1.3 *server* only as a design (`docs/tls-server.md`, nothing built); the OpenSSL path would make the report unbounded | wait for lex-sys steps 1 to 3; then flags, rules, about 179 KiB a connection by the client's layout, 3 to 5 ms of CPU a handshake | `fs` read of the certificate and key; no `ffi` |
+| TLS | the broker has no transport layer; cancho now has the server (signer, engine, example: steps 1 to 3, unreviewed), not client certificates or tickets | a transport layer, a second listener, five bounds; about 179 KiB a TLS connection, 3.0 to 5.5 ms of CPU a handshake | `dir_read`, `file_read`, `fs_read("")`, `signals("HUP")`; no `ffi` |
 | Authentication | needs a credential source and a hash | a credential file, a password hash, CONNACK 4/5, rule tags | `fs` read of one path, or flags |
 | MQTT 5 | it changes the codec, every rule and the memory model | the largest item here: a second protocol | none |
 | WebSockets | HTTP upgrade and framing are a second front end | upgrade, SHA-1 and base64, frame codec; about 10 KB a connection measured elsewhere | none |
-| `$SYS` | nothing in v1 needed it; the `stats` log record serves agents | a topic subtree fed from counters that exist | none |
-| Multi-threading | lex-sys has `spawn` and `join` but no atomics, no channel, no per-thread heap; one core was enough in every measurement | worker threads for TLS handshakes first; sharding the tables needs a channel and a way to wake a poller | new `conc` row |
+| `$SYS` | **built** (design §7b): 17 Mosquitto-named topics, none of `load/*`, `heap/*`, `store/*` | seven counters, a table of names, a tick | none |
+| Multi-threading | cancho has `spawn` and `join` but no atomics, no channel, no per-thread heap; one core was enough in every measurement | worker threads for TLS handshakes first; sharding the tables needs a channel and a way to wake a poller | new `conc` row |
 | Clustering | one thread, one `Poller`, no outbound connections | peers, subscription propagation, failure handling | `net_out`, forbidden today |
 
 The order I would take them in, if asked, is in the last section. It is a recommendation, not a decision.
@@ -32,7 +32,7 @@ per-type flag checks, two queue kinds (QoS 2 message and PUBREL), a received-ide
 five differential scenarios (340 generated scenarios agree with Mosquitto, after a harness fix described in the PR). **Not what the estimate said:** the
 inbound side is method A (routed on PUBLISH), where Mosquitto is method B (routed on PUBREL); the one difference is written down
 and asserted (`KNOWN_DIFFERENCES`), and the SUBSCRIBE-at-QoS-2 difference is gone. **Measured:** the QoS 2 fan-out cell is in
-`docs/benchmark.md`, with the caveat that lexsys-mqtt drops the newest message under overload and so delivers about 13% of what is offered.
+`docs/benchmark.md`, with the caveat that cancho-mqtt drops the newest message under overload and so delivers about 13% of what is offered.
 
 ## Persistence
 
@@ -40,7 +40,7 @@ and asserted (`KNOWN_DIFFERENCES`), and the SUBSCRIBE-at-QoS-2 difference is gon
 keeping until something needs more. v1 keeps sessions, queues and retained messages in memory only (§7, §8): a restart loses
 them, and a client that cares reconnects and resubscribes. That is a stated limit, not a bug.
 
-**Cost.** What lex-sys has: handles that append, sync and rename, built and tested (`docs/file-writes.md`); `Fs(prefix)`
+**Cost.** What cancho has: handles that append, sync and rename, built and tested (`docs/file-writes.md`); `Fs(prefix)`
 narrows to a path prefix (`docs/filesystem.md`). The broker would need: an append-only log of retained messages and persistent
 sessions' subscriptions and queued messages, a compaction by write-then-rename, a recovery that rebuilds the tables within
 the same bounds (a log larger than the bounds must be refused with a tag, not truncated silently), and a policy for when to
@@ -69,50 +69,59 @@ filesystem".
 
 ## TLS
 
-**Why out, corrected (2026-10-07).** v1 said TLS needs foreign code and would make the report unbounded. Two later facts change
-that:
-- lex-sys has a pure TLS 1.3 *client* (`packages/tls`, no `ffi`), and now a **design for the server side** that names this broker
-  as one of its two askers (`docs/tls-server.md`, lex-sys #335: "status: design, its open questions answered as proposed
-  (2026-10-07); nothing built yet"). Its first step, a constant-time `std.ecdsa.sign` on P-256, does not exist: `std.ecdsa` and
-  `std.rsa` verify only and `std.ed25519.sign` branches on secret data, which that document names as the prerequisite.
-- The engine never reads files: the program reads the certificate chain and the PEM key and hands the bytes over. So for this
-  broker the authority row is an `fs` read narrowed to those two paths, **not `ffi`**, and the report stays bounded. The
-  OpenSSL path (`docs/tls-nonblocking.md`: 37 foreign symbols for a client, an `UNBOUNDED` report) is no longer the only way.
+**Status (2026-10-07): the server is built in cancho; nothing here is built yet.** Read from cancho `main` at `8515d0d`
+(`docs/tls-server.md`, its sections 10 and 11), not from the earlier design:
+- **Step 1, the signer:** `std.ecdsa_sign`, ECDSA P-256 in constant time, with the key parsers (#338).
+- **Step 2, the engine:** `packages/tls` now serves TLS 1.3 (#339). Three suites, three groups, ECDSA P-256 identities (up to 16, chosen by
+  SNI), ALPN, HelloRetryRequest, `replace_identity` for a renewed certificate. 88 of 88 interop rows against `openssl s_client`, curl,
+  Go, wolfSSL and **mosquitto 2.0.18's own clients** (`mosquitto_sub` and `mosquitto_pub` against an `mqtt` ALPN server), a lying client,
+  a differential against `openssl s_server`, fuzzing and mutants. No `ffi`.
+- **Step 3, the example:** `examples/tls_echo` (#346), which the document calls "the TLS server the broker and the gateway copy": one
+  poller and `std.conns`, each connection in the same slot of the table and of the engine, bounds on handshakes in progress and on the
+  rate they start at, `SIGHUP` to reload, graceful stop. Its authority report is bounded: `dir_read`, `file_read`, `fs_read("")`,
+  `signals("HUP,INT,TERM")` and the listener rows.
+- **Prerequisite for step 4:** `packages/x509` verifies a chain without a host name (#344).
+- **Not built:** step 4 (client certificates: CertificateRequest and giving the program the verified subject), step 5 (session tickets),
+  step 6 (TLS 1.2), step 7 (more key types). `http.server` over TLS. More than one core.
+- **Not independently reviewed (#209)**, as the client; the document requires the broker's README to say so.
 
-So TLS is out of v1 because the server it would use is not built, not because it cannot be bounded. It is blocked on lex-sys
-steps 1 to 3 (signing and key parsing, the server engine with interop and fuzz gates, an example to copy).
+So the reason this section used to give (it needs `ffi` and the report would be unbounded) no longer holds: the authority cost is file
+and directory reads and one more signal, all bounded. TLS is out of the broker because **nobody has written the broker's side**, and that
+is now a design with its inputs known, below.
 
-**What lex-sys's design says that matters here.**
-- **TLS 1.3 only in its version 1.** Many embedded MQTT clients speak TLS 1.2 only (older mbedTLS and wolfSSL builds); its open
-  question 1 left 1.2 for a later step "if any need it". Which of this broker's clients do is **not known**, and it decides whether
-  TLS is usable for them.
-- **Client certificates are step 4** and the design says they move ahead if a program makes them its default authentication.
-  MQTT deployments commonly authenticate with them, so this broker's authentication design (below) should take a verified
-  certificate subject as an identity from the start, instead of a password file only.
-- **Cost.** A full handshake is about 3 to 5 ms of CPU, about 200 to 300 a second on a core, 10 to 50 times OpenSSL's (arithmetic
-  from measured parts, per that document). On a single-thread broker that is the connect-rate ceiling, and a reconnect storm
-  after a broker restart would queue behind it. Session tickets (step 5) save 2 to 3.5 ms of the 3 to 5.
-- **Memory.** A server slot is the client's, about 179 KiB, so 5,000 TLS connections is about 0.9 GB by that layout, against 0.34
-  KiB for an idle plain connection here after the buffers are attached lazily. The pool scheme of PR #16 helps with the
-  handshake state only: an established connection needs its keys and record buffers, so its floor is smaller than the slot but
-  **not measured**.
-- **Review.** The client is "not independently reviewed" (#209) and a server that signs with a long-lived key is a larger
-  exposure; the design says the broker's README must carry the same notice until that is answered.
+**What the broker would need** (a design, to be written as a section of `docs/design.md` before any code, as QoS 2 and `$SYS` were):
+- **A second listener** (`--tls-port`, 8883 by convention) in the same poller. The engine is given the connection's slot (the example's
+  rule: a connection has the same index in the table and in the engine) and the read and write paths go through `tls.feed`, `take`,
+  `send` and `recv` instead of the socket. That is a transport layer the broker does not have; today `step`, `flush` and `send_direct` call
+  the socket directly. It is the largest part of the work.
+- **Flags**, each a bound with a ceiling like every other: `tls-connections` (the engine's slots), `tls-handshakes` (in progress at once),
+  `tls-rate` (handshakes started a second), `tls-handshake-timeout`, `tls-dir` (the directory holding `chain.pem`, `key.pem`, `names`),
+  and rule tags for the engine's refusals. The example's defaults are 256 connections, 32 handshakes, 100 a second, 10 s to finish.
+- **Memory.** A server slot is the client's, about 179 KiB, plus five words, allocated when the engine opens: 256 TLS connections is about
+  45 MiB before any connects, and the engine adds 274 KiB for 16 identities and 75 KiB of work. So a TLS connection costs about 500 times
+  a plain one (0.34 KiB idle, `docs/benchmark.md`), and `tls-connections` must be its own small bound. The lazy-attach scheme of PR #16 does
+  not apply to a slot that holds keys and record buffers.
+- **CPU.** About 3.0 ms of CPU a full handshake on the M4 (330 a second on one core) and **5.5 ms on x86-64** (170 a second), measured by
+  that document on its CI runner. On a single-thread broker that is the connect-rate ceiling for TLS clients, and a reconnect storm after a
+  restart queues behind `tls-rate`. The example delays instead of refusing for exactly that case, and the broker should do the same.
+  Session tickets (step 5) would remove the signature from reconnects and are not built.
+- **Authority.** The ceiling gains `dir_read`, `file_read`, `fs_read("")` (the example reads the key file once, at start and on `SIGHUP`,
+  and then holds only a directory handle) and `signals("HUP,...")`. No `ffi`, so the report stays bounded. The mutants gain one that adds
+  a foreign call and must still be refused.
+- **Per-address limits.** The example says a flood from many addresses was not run, that its bounds are per process, and that a per-address
+  bound is the broker's and the gateway's to design, with an address `std.conns` does not give today.
 
-**What this changes in the plan.** Nothing to build yet; two things to keep in view. (1) Our side can be designed before the
-engine exists: flags (`--tls-port`, `--tls-cert`, `--tls-key`), rule tags for the engine's refusals, a `tls` field in the
-`listening` record, and a handshake bound in the memory table; that is a design section, no code, when step 2 is close. (2) A
-terminating proxy in front of the broker needs no change here and is still what I would recommend first.
+**What would have to be true.** (1) A transport layer in the broker, designed and measured. (2) A count of the clients that need TLS 1.2
+(many embedded MQTT stacks, older mbedTLS and wolfSSL, speak only 1.2; step 6 is built only "if any need 1.2") and a decision on it.
+(3) A decision on client certificates, which MQTT deployments commonly use to authenticate: step 4 is not built, and the engine gives
+the program the verified subject only once it is. (4) The review (#209), or the README notice. (5) A terminating proxy in front of the
+broker needs none of this and remains the answer where TLS is wanted before these exist.
 
-**What would have to be true.** lex-sys steps 1 to 3 built and reviewed, a count of the clients that need TLS 1.2, and a
-decision on client certificates as authentication.
-
-**Authority.** An `fs` read label for the certificate and key paths (the key is a secret, and the report would say a file is
-read), plus the `clock` and randomness the engine needs (**not checked**: which label the engine's DRBG seeding adds). No `ffi`.
+**Authority.** As above: bounded file and directory reads and one signal, no `ffi`.
 
 ## Authentication and authorisation
 
-**Why out.** v1 is anonymous: the codec decodes the user name and password fields (`wire.ls`, `c_user`, `c_pass`) so a client
+**Why out.** v1 is anonymous: the codec decodes the user name and password fields (`wire.cho`, `c_user`, `c_pass`) so a client
 that sends them is not refused, and the broker ignores them. There is no credential source, and a broker without one cannot
 check anything.
 
@@ -155,7 +164,7 @@ model twice.
 to the same broker, not a change to the broker.
 
 **Cost.** An HTTP/1.1 upgrade on the listener (`packages/http-server`, `http-request` exist, **not checked** whether they fit a
-`Poller` loop with 5,000 sockets); the accept key needs SHA-1 and base64, which `std` lacks: `examples/ocpp_ws/{sha1,b64}.ls`
+`Poller` loop with 5,000 sockets); the accept key needs SHA-1 and base64, which `std` lacks: `examples/ocpp_ws/{sha1,b64}.cho`
 carry differentially tested versions (`docs/websocket-spike.md`, gap 1, which proposes them for `std`); a frame codec with
 masking, fragmentation, ping and close, and a rule tag for each malformed frame; MQTT packets carried one or more per frame.
 Memory: that spike's server held 10,000 WebSocket connections in 79.8 MB, 38 MB of it slabs allocated before the first
@@ -170,23 +179,21 @@ kind, not the port, today).
 
 ## `$SYS`
 
-**Why out.** Mosquitto publishes broker statistics under `$SYS/#`. v1's counters already exist (`tables.ls`, `ctr`, with an
-exact count per rule) and the `stats` log record carries them on a schedule, which is the surface this broker's users (agents,
-by the agent-first rule) read. A second surface for the same numbers had no asker.
-
-**Cost.** Small. A retained-like subtree fed from the counters on the stats interval; the matcher already keeps a leading wildcard from matching a `$` name (`topic.ls`, `subs.ls`; spec 4.7.2-1, number from memory), so a client subscribing to `#` does not receive them. The cost is the fan-out of a periodic publish to every
-`$SYS/#` subscriber, bounded by the same queue rules.
-
-**What would have to be true.** A user whose tooling expects `$SYS` (Mosquitto dashboards, several exporters do; **not checked**
-which).
-
-**Authority.** None. The counters are already in memory.
+**Built** (design section 7b; `tests/conformance/test_sys.py`, and the comparison with Mosquitto in `test_differential.py`). The estimate
+above said small, and it was: seventeen topics with Mosquitto's names and formats, a table of names, seven counters, a tick every
+`sys-interval` seconds, about 330 lines of source and tests. What it is not, said once more where the estimate was silent:
+no `load/*` averages, no `heap/*`, no `store/*` or `messages/stored`, and the deprecated `clients/active|inactive|expired` and
+`shared_subscriptions/count` are absent. Where the numbers have the same meaning the two brokers agree on the same traffic
+(`clients/*`, `publish/messages/received`, `publish/bytes/received`, `publish/messages/dropped`, `subscriptions/count`); where they
+do not (`retained messages/count` counts Mosquitto's own 50-odd `$SYS` topics, `messages/*` and `bytes/*` include its own `$SYS`
+traffic) they are different quantities and are not compared. A client's PUBLISH under `$SYS/` is dropped by both, here with the tag
+`protocol.reserved-topic`.
 
 ## Multi-threading
 
-**Why out.** Two reasons, one a fact about lex-sys and one a measurement.
+**Why out.** Two reasons, one a fact about cancho and one a measurement.
 
-*What lex-sys has* (read from `docs/threads.md`, `parallelism.md`, `atomics.md` and `thread-payloads.md` at lex-sys `2c1b315`):
+*What cancho has* (read from `docs/threads.md`, `parallelism.md`, `atomics.md` and `thread-payloads.md` at cancho `2c1b315`):
 `spawn` and `join` are real `pthread_create` and `pthread_join`, on both backends. What is missing is what a broker would share
 across threads:
 - **No atomics and no channel.** They are designed (`atomics.md`: one `Atomic` type, sequentially consistent operations, a channel
@@ -207,7 +214,9 @@ across threads:
 thread. The cost of single-threading has not shown up as a limit in any cell run.
 
 **What would make it worth doing.** In order of how soon I expect them to bite:
-1. **TLS handshakes.** At 3 to 5 ms of CPU each (above) they, not message fan-out, are what a single thread cannot carry. A
+1. **TLS handshakes.** At 3.0 ms (M4) to 5.5 ms (x86-64) of CPU each (measured, TLS section) they, not message fan-out, are what a single
+   thread cannot carry; cancho's own example answers that by bounding handshakes in progress and their rate on one thread, which is the
+   first thing to copy and may be enough. A
    handshake is a function of one slot: a natural first use of a worker thread is to run it there and hand the slot back. That
    needs the worker to say it is done without blocking the poller (an `Atomic` flag read by the loop, plus a `Pipe` to wake it), so
    it waits for atomics stage A0 and the wake design. It would not touch the tables.
@@ -216,7 +225,7 @@ thread. The cost of single-threading has not shown up as a limit in any cell run
    channel (A3). The subscription trie is then either replicated or queried across shards; a design problem, not an engineering one.
 
 **Without threads.** Several broker processes behind a TCP balancer scale connections but split the subscription space, which is
-the clustering problem below; `SO_REUSEPORT` would let processes share a port, **not checked** whether lex-sys exposes it.
+the clustering problem below; `SO_REUSEPORT` would let processes share a port, **not checked** whether cancho exposes it.
 
 **What would have to be true.** Atomics A0 and A1 built, a wake mechanism measured, and a measured workload one core cannot carry.
 
@@ -245,17 +254,20 @@ started by a supervisor after a crash, accepting the loss persistence would remo
 
 ## An order, if asked
 
-This is my recommendation, and the maintainer's to change. It was revised after QoS 2 was built and after lex-sys's TLS server
-design appeared.
+This is my recommendation, and the maintainer's to change. It was revised after QoS 2, MQTT 3.1 and `$SYS` were built and after
+cancho's TLS server landed.
 
-1. **`$SYS`** and **MQTT 3.1 (level 3, `MQIsdp`)**: small, no authority change. (**QoS 2: done.**)
+1. **Done:** QoS 2, MQTT 3.1 (`MQIsdp`), `$SYS`.
 2. **Authentication**, designed to take a client-certificate identity as well as a password file, so TLS client certificates can
    follow without a second mechanism. The first feature that needs a file label, so it exercises the "ceiling grows by one exact
-   row" path with its mutant on something small.
+   row" path with its mutant on something small. Step 4 of cancho's TLS server (client certificates) is not built, so the
+   certificate half waits for it.
 3. **Persistence, retained messages first** (see that section: it can swap places with 2 if restart loss is the bigger problem).
-4. **TLS**, when lex-sys steps 1 to 3 are built and reviewed; a terminating proxy until then. **WebSockets** if there are browser
-   clients.
-5. **Worker threads for TLS handshakes** after TLS and atomics A0 exist; sharding only on a measured need.
+4. **TLS.** Unblocked on cancho's side for server-only TLS 1.3 (steps 1 to 3 built, unreviewed). On this side it needs the transport
+   layer and a design section first; it is the largest remaining item that is not a new protocol. A terminating proxy meanwhile.
+   **WebSockets** if there are browser clients.
+5. **Worker threads for TLS handshakes** only if cancho's example's bounds are not enough, after atomics A0 exist; sharding only on a
+   measured need.
 6. **MQTT 5** after the session model has settled. **Clustering** only on a stated need.
 
 ## What this document does not settle

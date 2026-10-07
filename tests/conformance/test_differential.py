@@ -33,12 +33,14 @@ NAMES = ["A", "B", "C"]
 
 
 class MosquittoBroker:
-    def __init__(self):
+    def __init__(self, sys_interval=None):
         self.port = free_port()
         self.dir = tempfile.mkdtemp()
         conf = os.path.join(self.dir, "m.conf")
         with open(conf, "w") as f:
             f.write("listener %d 127.0.0.1\nallow_anonymous true\npersistence false\nlog_type none\n" % self.port)
+            if sys_interval:
+                f.write("sys_interval %d\n" % sys_interval)
         self.proc = subprocess.Popen([MOSQUITTO, "-c", conf], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         end = time.time() + 5
         while time.time() < end:
@@ -108,13 +110,16 @@ class Run:
                     self.live.pop(name)
                     self.history[name].append(("closed",))
 
-    def connect(self, name, clean, will=None):
+    def connect(self, name, clean, will=None, legacy=False):
         if name in self.live:
             old = self.live.pop(name)
             # a takeover: the old connection is closed by the broker
             self.takeover = old
         c = Client(self.port)
-        c.send(connect_packet(name, clean=clean, keepalive=0, will=will))
+        if legacy:
+            c.send(connect_packet(name, clean=clean, keepalive=0, will=will, name=b"MQIsdp", level=3))
+        else:
+            c.send(connect_packet(name, clean=clean, keepalive=0, will=will))
         k, _, body = c.recv(3.0)
         assert k == 2
         self.history[name].append(("connack", body[0] & 1, body[1]))
@@ -192,6 +197,8 @@ def apply(run, op):
     kind = op[0]
     if kind == "connect":
         run.connect(op[1], op[2], op[3] if len(op) > 3 else None)
+    elif kind == "connect31":
+        run.connect(op[1], op[2], op[3] if len(op) > 3 else None, legacy=True)
     elif kind == "subscribe":
         run.subscribe(op[1], op[2])
     elif kind == "unsubscribe":
@@ -223,7 +230,7 @@ def generate(seed, length=30):
             will = None
             if rng.random() < 0.3:
                 will = (rng.choice(TOPICS), b"will-" + name.encode(), rng.randrange(2), rng.random() < 0.3)
-            ops.append(("connect", name, rng.random() < 0.5, will))
+            ops.append((rng.choice(["connect", "connect", "connect31"]), name, rng.random() < 0.5, will))
             live.add(name)
         elif r < 0.30:
             ops.append(("subscribe", name, [(rng.choice(FILTERS), sub_qos[name]) for _ in range(rng.randrange(1, 3))]))
@@ -296,6 +303,16 @@ SCRIPTS = {
         ("begin2", "A", "t", b"once", False), ("begin2", "A", "t", b"once", True), ("release2", "A"),
         ("begin2", "A", "t", b"twice", False), ("release2", "A"),
     ],
+    "mqtt 3.1 clients": [
+        ("connect31", "A", True), ("connect", "B", True), ("subscribe", "A", [("l/#", 1)]), ("subscribe", "B", [("l/#", 1)]),
+        ("publish", "B", "l/x", b"to-old", 1, False), ("publish", "A", "l/y", b"from-old", 1, False),
+        ("publish", "A", "l/r", b"kept", 1, True), ("connect31", "C", True), ("subscribe", "C", [("l/r", 1)]),
+    ],
+    "mqtt 3.1 persistent session": [
+        ("connect31", "A", False), ("subscribe", "A", [("p/#", 1)]), ("disconnect", "A", True),
+        ("connect", "B", True), ("publish", "B", "p/x", b"queued", 1, False),
+        ("connect31", "A", False), ("disconnect", "A", False), ("connect31", "A", True),
+    ],
     "takeover": [
         ("connect", "A", True, ("w", b"never", 0, False)), ("subscribe", "A", [("t", 0)]),
         ("connect", "B", True), ("subscribe", "B", [("w", 0)]),
@@ -344,6 +361,110 @@ class Differential(unittest.TestCase):
     def agree(self, ops, label):
         mine, theirs = self.both(ops)
         self.assertEqual(mine, theirs, "the brokers disagree on %s:\n%s" % (label, "\n".join(map(str, ops))))
+
+    def sys_view(self, port):
+        """Fixed traffic, then everything an observer sees under `$SYS/broker/`: the first message of each
+        topic with its flags, and the last payload of each."""
+        a = Client(port)
+        a.connect("A")
+        a.subscribe([("t/#", 1)])
+        b = Client(port)
+        b.connect("B")
+        for i in range(3):
+            b.publish("t/x", b"hello", qos=0)
+        b.publish("t/y", b"world!", qos=1)
+        b.publish("keep", b"r", qos=0, retain=True)
+        b.send(publish_packet("$SYS/broker/spoof", b"forged", qos=0))
+        time.sleep(0.3)
+        c = Client(port)
+        c.connect("C")
+        c.send(subscribe_packet([("$SYS/broker/#", 1)]))
+        first, last = {}, {}
+        end = time.time() + 3.5
+        while time.time() < end:
+            try:
+                k, f, body = c.recv(1.0)
+            except TimeoutError:
+                continue
+            if k != 3:
+                continue
+            tl = int.from_bytes(body[:2], "big")
+            topic = body[2:2 + tl].decode()
+            qos = (f >> 1) & 3
+            at = 2 + tl
+            if qos:
+                c.send(puback_packet(int.from_bytes(body[at:at + 2], "big")))
+                at += 2
+            first.setdefault(topic, (qos, bool(f & 1)))
+            last[topic] = body[at:].decode()
+        for x in (a, b, c):
+            x.close()
+        return first, last
+
+    def test_sys_topics_agree_where_they_are_defined(self):
+        mine = Broker("--sys-interval", "1")
+        theirs = MosquittoBroker(sys_interval=1)
+        try:
+            ours_first, ours_last = self.sys_view(mine.port)
+            their_first, their_last = self.sys_view(theirs.port)
+        finally:
+            mine.__exit__(None, None, None)
+            theirs.stop()
+        self.assertEqual(len(ours_first), 17)
+        # Every topic of this broker is one Mosquitto has, delivered the same way (QoS 1, retain set the first time).
+        self.assertLessEqual(set(ours_first), set(their_first))
+        for topic in ours_first:
+            if topic.endswith("clients/maximum"):
+                # Seen: Mosquitto sends this one first as a live update (retain clear), not as a retained
+                # message, because it publishes it only once it has changed. Here it is sent like the others.
+                self.assertEqual(ours_first[topic], (1, True))
+                self.assertEqual(their_first[topic][0], 1)
+                continue
+            self.assertEqual(ours_first[topic], their_first[topic], topic)
+        # A client's publish under $SYS/ is dropped by both.
+        self.assertNotIn("$SYS/broker/spoof", ours_last)
+        self.assertNotIn("$SYS/broker/spoof", their_last)
+        # The counters whose meaning is the same in both agree on the same traffic.
+        for topic in ("clients/connected", "clients/disconnected", "clients/maximum", "clients/total",
+                      "publish/messages/received", "publish/bytes/received", "publish/messages/dropped",
+                      "subscriptions/count"):
+            self.assertEqual(ours_last["$SYS/broker/" + topic], their_last["$SYS/broker/" + topic], topic)
+        # Formats: a number, or `N seconds`, or `<name> version X`.
+        self.assertRegex(ours_last["$SYS/broker/uptime"], r"^\d+ seconds$")
+        self.assertRegex(their_last["$SYS/broker/uptime"], r"^\d+ seconds$")
+        self.assertRegex(ours_last["$SYS/broker/version"], r"^\S+ version \S+$")
+        self.assertRegex(their_last["$SYS/broker/version"], r"^\S+ version \S+$")
+
+    def test_connect_outcomes_agree_for_every_name_level_and_identifier(self):
+        # The CONNACK code (or a close) for each pairing of protocol name, level and identifier,
+        # including MQTT 3.1 (`MQIsdp`, level 3), which 3.1.1 broker code could easily get wrong.
+        from harness import pkt, s16
+        cases = [(b"MQIsdp", 3, b"abc", True), (b"MQIsdp", 3, b"", True), (b"MQIsdp", 3, b"", False),
+                 (b"MQIsdp", 3, b"a" * 100, True), (b"MQIsdp", 4, b"x", True), (b"MQIsdp", 5, b"x", True),
+                 (b"MQTT", 3, b"x", True), (b"MQTT", 4, b"", True), (b"MQTT", 4, b"", False),
+                 (b"MQIsd", 3, b"x", True), (b"MQTT", 4, b"x" * 100, False)]
+
+        def outcome(port, name, level, cid, clean):
+            c = Client(port)
+            try:
+                c.send(pkt(0x10, s16(name) + bytes([level]) + bytes([2 if clean else 0]) + (60).to_bytes(2, "big") + s16(cid)))
+                try:
+                    k, f, b = c.recv(3.0)
+                    return ("connack", b[1])
+                except Closed:
+                    return "closed"
+            finally:
+                c.close()
+
+        mine = Broker()
+        theirs = MosquittoBroker()
+        try:
+            for case in cases:
+                with self.subTest(case=case):
+                    self.assertEqual(outcome(mine.port, *case), outcome(theirs.port, *case))
+        finally:
+            mine.__exit__(None, None, None)
+            theirs.stop()
 
     def test_scripted_scenarios(self):
         for name, ops in SCRIPTS.items():

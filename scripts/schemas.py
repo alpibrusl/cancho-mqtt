@@ -3,7 +3,7 @@
 broker writes on standard output (design section 5a).
 
 The shared parts -- the error object, the repair kinds, `text_or_bytes` -- are the
-toolbox's (lexsys-tools scripts/schemas.py), written out here so the file is
+toolbox's (cancho-tools scripts/schemas.py), written out here so the file is
 self-contained: it is embedded in the binary by scripts/manifest.py and printed by
 `mqtt introspect`. Every object is `additionalProperties: false` except an error's
 `detail`, which is rule-specific data.
@@ -33,7 +33,7 @@ RULES = [
     "limit.subscriptions-per-client", "limit.subscriptions-total", "limit.connections",
     "timeout.keepalive", "timeout.write-stalled", "limit.queue", "limit.retained",
     "limit.offline-sessions", "protocol.unexpected-packet", "limit.topic-level",
-    "limit.will-size", "limit.output-full", "limit.qos2-inbound",
+    "limit.will-size", "limit.output-full", "limit.qos2-inbound", "protocol.reserved-topic",
 ]
 
 
@@ -111,7 +111,7 @@ def schema():
     one_of = [{"$ref": "#/$defs/" + n} for n in ("listening", "refusal", "stats", "rule", "error_record", "end")]
     return {
         "$schema": DIALECT,
-        "$id": "https://github.com/alpibrusl/lexsys-mqtt/schemas/mqtt.v1.json",
+        "$id": "https://github.com/alpibrusl/cancho-mqtt/schemas/mqtt.v1.json",
         "title": "mqtt.v1",
         "description": "One line of the NDJSON stream `mqtt` writes. The last line of a stream that finished is the end record; a stream without one was cut short.",
         "oneOf": one_of,

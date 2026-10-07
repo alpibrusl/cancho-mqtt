@@ -1,0 +1,34 @@
+[package]
+name = "cancho-mqtt"
+cancho = "a4572ea3b506e4bcec1c4be43deda1043c11ba9f"   # the compiler these sources were written for
+
+[[bin]]
+name = "mqtt"
+sources = ["src", "generated/mqtt"]
+std = true
+out = "build/mqtt"
+
+[[test]]
+name = "wire"
+sources = ["src/wire.cho", "tests/wire_test.cho"]
+std = true
+
+[[test]]
+name = "topic"
+sources = ["src/topic.cho", "tests/topic_test.cho"]
+std = true
+
+[[test]]
+name = "subs"
+sources = ["src/topic.cho", "src/subs.cho", "tests/subs_test.cho"]
+std = true
+
+[[test]]
+name = "config"
+sources = ["src/config.cho", "tests/config_test.cho"]
+std = true
+
+[dependencies.describe]
+git = "https://github.com/alpibrusl/cancho-tools"
+rev = "8dab9176e521660333914dc768a80a29330a2a8e"
+path = ".cancho-vcs/toolbox.describe"

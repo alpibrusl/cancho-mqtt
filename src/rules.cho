@@ -1,7 +1,7 @@
 edition 5;
 
 // `mqtt.rules` -- the broker's connection-level rules, as numbers the hot path
-// can count and as the tags (`<area>.<name>`, lex-sys docs/agent-toolbox.md D5)
+// can count and as the tags (`<area>.<name>`, cancho docs/agent-toolbox.md D5)
 // the logs, the counters and `introspect` name. One list: `tag` is the only place
 // a tag is spelled, and `describe` reads `count` and `tag`, so the catalogue and
 // the code cannot disagree.
@@ -118,8 +118,12 @@ pub fn qos2_inbound() -> [] int {
     return 26;
 }
 
-pub fn count() -> [] int {
+pub fn reserved_topic() -> [] int {
     return 27;
+}
+
+pub fn count() -> [] int {
+    return 28;
 }
 
 // The tag of rule `i`.
@@ -202,7 +206,10 @@ pub fn tag(i: int) -> [] &static [byte] {
     if i == 25 {
         return "limit.output-full";
     }
-    return "limit.qos2-inbound";
+    if i == 26 {
+        return "limit.qos2-inbound";
+    }
+    return "protocol.reserved-topic";
 }
 
 // What the broker does when the rule fires, for `introspect`'s `connection_rules`.
@@ -230,6 +237,9 @@ pub fn action(i: int) -> [] &static [byte] {
     }
     if i == 24 {
         return "CONNACK 0x03, then close";
+    }
+    if i == 27 {
+        return "acknowledge as usual, do not route or retain";
     }
     return "close";
 }

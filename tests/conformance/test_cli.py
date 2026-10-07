@@ -276,7 +276,7 @@ class Text(unittest.TestCase):
         status, out, err = run("rules", "--format", "text")
         self.assertEqual(status, 0)
         lines = out.splitlines()
-        self.assertEqual(len(lines), 27)
+        self.assertEqual(len(lines), 28)
         self.assertTrue(lines[0].startswith("protocol.connect-first  "))
         self.assertNotIn("{", out)
 

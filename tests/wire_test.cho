@@ -86,6 +86,21 @@ pub fn test_check_kind() -> [] int {
     return 0;
 }
 
+// CONNECT for MQTT 3.1: name `MQIsdp`, level 3, client id "abc".
+fn connect_packet_31[&b](buf: &!b [byte], level: int) -> [] int {
+    var p = 0;
+    p = put(buf, p, 16);
+    p = put(buf, p, 0);
+    p = str(buf, p, "MQIsdp");
+    p = put(buf, p, level);
+    p = put(buf, p, 2);
+    p = put(buf, p, 0);
+    p = put(buf, p, 60);
+    p = str(buf, p, "abc");
+    buf[1] = byte_of(p - 2);
+    return p;
+}
+
 // CONNECT, clean session, keepalive 60, client id "abc".
 fn connect_packet[&b](buf: &!b [byte], flags: int) -> [] int {
     var p = 0;
@@ -99,6 +114,37 @@ fn connect_packet[&b](buf: &!b [byte], flags: int) -> [] int {
     p = str(buf, p, "abc");
     buf[1] = byte_of(p - 2);
     return p;
+}
+
+pub fn test_connect_31() -> [] int {
+    region a {
+        let b = alloc_slice[a](64, byte_of(0));
+        let t = alloc_slice[a](wire.connect_slots(), 0);
+        var n = connect_packet_31(b, 3);
+        test.assert_eq(wire.decode_connect(b[0..n], t), 0);
+        test.assert_eq(t[wire.c_level()], 3);
+        test.assert_eq(t[wire.c_legacy()], 1);
+        // The level is the caller's to judge: name and level go together there, not here.
+        n = connect_packet_31(b, 4);
+        test.assert_eq(wire.decode_connect(b[0..n], t), 0);
+        test.assert_eq(t[wire.c_legacy()], 1);
+        // A 3.1.1 packet says so.
+        n = connect_packet(b, 2);
+        test.assert_eq(wire.decode_connect(b[0..n], t), 0);
+        test.assert_eq(t[wire.c_legacy()], 0);
+        // Every prefix of the 3.1 packet is refused, never trapped on.
+        n = connect_packet_31(b, 3);
+        var cut = 2;
+        while cut < n {
+            test.assert(wire.decode_connect(b[0..cut], t) < 0);
+            cut = cut + 1;
+        }
+        // Another name of six bytes is still a bad name.
+        n = connect_packet_31(b, 3);
+        b[4] = byte_of(88);
+        test.assert_eq(wire.decode_connect(b[0..n], t), wire.e_name());
+    }
+    return 0;
 }
 
 pub fn test_connect() -> [] int {

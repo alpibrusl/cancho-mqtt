@@ -29,7 +29,7 @@ import mqtt.logs;
 import mqtt.rules;
 
 fn version() -> [] &static [byte] {
-    return "0.1.0";
+    return config.version();
 }
 
 // Rules of this tool's own, beside the shared catalogue: `tag|exit|repairable|summary`.
