@@ -23,6 +23,7 @@ import toolbox.cli;
 import toolbox.describe;
 import toolbox.fail;
 import toolbox.out;
+import mqtt.auth;
 import mqtt.broker;
 import mqtt.config;
 import mqtt.logs;
@@ -34,7 +35,7 @@ fn version() -> [] &static [byte] {
 
 // Rules of this tool's own, beside the shared catalogue: `tag|exit|repairable|summary`.
 fn own_rules() -> [] &static [byte] {
-    return "args.out-of-range|2|sometimes|a bound is below its smallest value or above its ceiling;args.unknown-command|2|never|the first operand is not serve;conflict.address-in-use|5|never|the port is already bound by another program;io.bind-failed|1|never|the operating system refused to listen on the port for a reason that is not permission or a port in use;io.poller-failed|1|never|the operating system could not create the poller or the signal watch";
+    return "args.out-of-range|2|sometimes|a bound is below its smallest value or above its ceiling;args.unknown-command|2|never|the first operand is not serve;conflict.address-in-use|5|never|the port is already bound by another program;io.bind-failed|1|never|the operating system refused to listen on the port for a reason that is not permission or a port in use;io.poller-failed|1|never|the operating system could not create the poller or the signal watch;auth.credentials-invalid|2|never|the credential table read from standard input breaks a rule of its format";
 }
 
 fn tool() -> [] describe.Tool {
@@ -167,6 +168,10 @@ fn configure[&h, &g, &i, &c](heap: &!h Heap, args: &g Args, io: &!i Io, cfg: &!c
     borrow parsed as &pr in {
         let n = cli.operand_count(pr);
         text_mode = bytes.equal(cli.text(args, pr, table, "format"), "text");
+        cfg[config.i_auth()] = 0;
+        if bytes.equal(cli.text(args, pr, table, "auth"), "stdin") {
+            cfg[config.i_auth()] = 1;
+        }
         // An operand error that follows from an unknown flag is not reported twice.
         if parse_errors == 0 {
             if n == 0 {
@@ -219,11 +224,11 @@ fn configure[&h, &g, &i, &c](heap: &!h Heap, args: &g Args, io: &!i Io, cfg: &!c
 
 // Run the broker on `listener` until a stop signal arrives or the log cannot be
 // written. Answers the exit status.
-fn serve[&h, &g, &k, &l, &w, &i](heap: &!h Heap, cfg: &g [int], clock: &k Clock, listener: &!l Listener, watch: &!w SignalWatch, io: &!i Io) -> [heap, conn_accept, conn_read, conn_write, poll, clock, signals_read, io_write, err_write] int {
+fn serve[&h, &g, &k, &l, &w, &i](heap: &!h Heap, cfg: &g [int], abuf: Box[[byte]], ameta: Box[[int]], ausers: int, adummy: int, clock: &k Clock, listener: &!l Listener, watch: &!w SignalWatch, io: &!i Io) -> [heap, conn_accept, conn_read, conn_write, poll, clock, signals_read, io_write, err_write] int {
     match poller_new() {
         Polling::Ok(p) => {
             let t0 = clock_ms(clock);
-            var b = broker.open(heap, p, listener, cfg);
+            var b = broker.open(heap, p, listener, cfg, abuf, ameta, ausers, adummy);
             var token = 0;
             borrow b as &br in {
                 token = broker.first_token(br);
@@ -290,11 +295,57 @@ fn serve[&h, &g, &k, &l, &w, &i](heap: &!h Heap, cfg: &g [int], clock: &k Clock,
             return status;
         }
         Polling::Failed(e) => {
+            unbox_slice(heap, abuf);
+            unbox_slice(heap, ameta);
             var errs = fail.empty_in(heap, own_rules());
             errs = problem(heap, errs, "io.poller-failed", "the operating system could not create the poller", "", "errno", "poller");
             return refuse(heap, io, errs, cfg[config.i_format()] == 1);
         }
     }
+}
+
+// ---- the credential table ------------------------------------------------------------------------------------------
+
+// Read the table from standard input (to its end, at most `auth.max_input` bytes) and parse it into `abuf` and `ameta`
+// (design section 7c). Answers the number of users, or -1 after the refusal has been written, with the exit status in
+// `info[3]` and the highest iteration count in `info[2]`.
+fn load_credentials[&h, &i, &g, &b, &m, &o](heap: &!h Heap, io: &!i Io, cfg: &g [int], abuf: &!b [byte], ameta: &!m [int], info: &!o [int]) -> [heap, io_read, io_write, err_write] int {
+    let room = cfg[config.i_auth_users()];
+    let cap = auth.max_input(room);
+    var text = buffer.empty(heap, 4096);
+    var n = 0;
+    var big = false;
+    var c = getchar(io);
+    while c >= 0 && !big {
+        if n >= cap {
+            big = true;
+        } else {
+            text = buffer.push(heap, text, byte_of(c));
+            n = n + 1;
+            c = getchar(io);
+        }
+    }
+    var users = 0 - 1;
+    info[0] = 0;
+    info[1] = 10;
+    if !big {
+        borrow text as &tr in {
+            users = auth.parse(buffer.bytes(tr), abuf, ameta, room, info);
+        }
+    }
+    buffer.drop(heap, text);
+    if users >= 0 {
+        return users;
+    }
+    var w = fail.open_in(heap, own_rules(), "auth.credentials-invalid", "the credential table read from standard input breaks a rule of its format", "fix the line named, or make the table with scripts/passwd.py, and start again; the table is read once, at start");
+    w = fail.no_repair(heap, w);
+    w = fail.detail_open(heap, w);
+    w = json.put_key(heap, w, "reason");
+    w = json.put_string(heap, w, auth.reason(info[1]));
+    w = json.put_key(heap, w, "line");
+    w = json.put_int(heap, w, info[0]);
+    info[3] = refuse(heap, io, fail.add(heap, fail.empty_in(heap, own_rules()), w), cfg[config.i_format()] == 1);
+    return 0 - 1;
 }
 
 // `tcp_listen` failed with `errno`: the port is in use (EADDRINUSE: 98 on Linux, 48
@@ -324,7 +375,7 @@ fn listen_failed[&h, &i](heap: &!h Heap, io: &!i Io, port: int, errno: int, text
 
 fn main(world: World) -> [] int {
     let Split { io, ffi, fs, heap, args, net, clock, signals } = split(world);
-    // A broker: no files, no foreign code, nothing read from standard input.
+    // A broker: no files, no foreign code. Standard input is read once, at start, and only with `--auth stdin`.
     release(ffi);
     release(fs);
     let claim = narrow(signals, "INT,TERM");
@@ -341,36 +392,70 @@ fn main(world: World) -> [] int {
                     status = go;
                 } else {
                     borrow cfg as &cr in {
-                        let port = contents(cr)[config.i_port()];
-                        borrow net as &nn in {
-                            match tcp_listen(nn, port, 1024, 0) {
-                                Listening::Ok(l) => {
-                                    var listener = l;
-                                    borrow mut listener as &!lh in {
-                                        listener_nonblocking(lh);
-                                        borrow claim as &sc in {
-                                            match signals_watch(sc) {
-                                                Watching::Ok(wt) => {
-                                                    var watch = wt;
-                                                    borrow mut watch as &!wh in {
-                                                        borrow clock as &c in {
-                                                            status = serve(h, contents(cr), c, lh, wh, i);
+                        var rows = 1;
+                        if contents(cr)[config.i_auth()] == 1 {
+                            rows = contents(cr)[config.i_auth_users()];
+                        }
+                        var abuf = box_slice(h, rows * auth.stride(), byte_of(0));
+                        var ameta = box_slice(h, rows * auth.meta_stride(), 0);
+                        var info = box_slice(h, 4, 0);
+                        var users = 0;
+                        if contents(cr)[config.i_auth()] == 1 {
+                            borrow mut abuf as &!ab in {
+                                borrow mut ameta as &!am in {
+                                    borrow mut info as &!inf in {
+                                        users = load_credentials(h, i, contents(cr), contents(ab), contents(am), contents(inf));
+                                    }
+                                }
+                            }
+                        }
+                        var dummy = 1;
+                        var refused = 0;
+                        borrow info as &ir in {
+                            dummy = contents(ir)[2];
+                            refused = contents(ir)[3];
+                        }
+                        unbox_slice(h, info);
+                        if users < 0 {
+                            status = refused;
+                            unbox_slice(h, abuf);
+                            unbox_slice(h, ameta);
+                        } else {
+                            let port = contents(cr)[config.i_port()];
+                            borrow net as &nn in {
+                                match tcp_listen(nn, port, 1024, 0) {
+                                    Listening::Ok(l) => {
+                                        var listener = l;
+                                        borrow mut listener as &!lh in {
+                                            listener_nonblocking(lh);
+                                            borrow claim as &sc in {
+                                                match signals_watch(sc) {
+                                                    Watching::Ok(wt) => {
+                                                        var watch = wt;
+                                                        borrow mut watch as &!wh in {
+                                                            borrow clock as &c in {
+                                                                status = serve(h, contents(cr), abuf, ameta, users, dummy, c, lh, wh, i);
+                                                            }
                                                         }
+                                                        signals_close(watch);
                                                     }
-                                                    signals_close(watch);
-                                                }
-                                                Watching::Failed(e) => {
-                                                    var errs = fail.empty_in(h, own_rules());
-                                                    errs = problem(h, errs, "io.poller-failed", "the operating system could not watch for stop signals", "", "errno", "signals");
-                                                    status = refuse(h, i, errs, contents(cr)[config.i_format()] == 1);
+                                                    Watching::Failed(e) => {
+                                                        unbox_slice(h, abuf);
+                                                        unbox_slice(h, ameta);
+                                                        var errs = fail.empty_in(h, own_rules());
+                                                        errs = problem(h, errs, "io.poller-failed", "the operating system could not watch for stop signals", "", "errno", "signals");
+                                                        status = refuse(h, i, errs, contents(cr)[config.i_format()] == 1);
+                                                    }
                                                 }
                                             }
                                         }
+                                        listener_close(listener);
                                     }
-                                    listener_close(listener);
-                                }
-                                Listening::Failed(e) => {
-                                    status = listen_failed(h, i, port, e, contents(cr)[config.i_format()] == 1);
+                                    Listening::Failed(e) => {
+                                        unbox_slice(h, abuf);
+                                        unbox_slice(h, ameta);
+                                        status = listen_failed(h, i, port, e, contents(cr)[config.i_format()] == 1);
+                                    }
                                 }
                             }
                         }

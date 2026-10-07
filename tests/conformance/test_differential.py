@@ -33,12 +33,24 @@ NAMES = ["A", "B", "C"]
 
 
 class MosquittoBroker:
-    def __init__(self, sys_interval=None):
+    def __init__(self, sys_interval=None, users=None):
+        """`users`: (name, password) pairs for `password_file`, with anonymous clients refused."""
         self.port = free_port()
         self.dir = tempfile.mkdtemp()
         conf = os.path.join(self.dir, "m.conf")
         with open(conf, "w") as f:
-            f.write("listener %d 127.0.0.1\nallow_anonymous true\npersistence false\nlog_type none\n" % self.port)
+            if users:
+                # Mosquitto, started as root, runs as its own user: the directory and the file must be readable.
+                os.chmod(self.dir, 0o755)
+                passwords = os.path.join(self.dir, "passwords")
+                for i, (name, password) in enumerate(users):
+                    subprocess.run(["mosquitto_passwd", "-b"] + (["-c"] if i == 0 else []) + [passwords, name, password],
+                                   check=True, capture_output=True)
+                os.chmod(passwords, 0o644)
+                f.write("listener %d 127.0.0.1\nallow_anonymous false\npassword_file %s\npersistence false\nlog_type none\n"
+                        % (self.port, passwords))
+            else:
+                f.write("listener %d 127.0.0.1\nallow_anonymous true\npersistence false\nlog_type none\n" % self.port)
             if sys_interval:
                 f.write("sys_interval %d\n" % sys_interval)
         self.proc = subprocess.Popen([MOSQUITTO, "-c", conf], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

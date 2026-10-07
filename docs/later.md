@@ -121,7 +121,7 @@ broker needs none of this and remains the answer where TLS is wanted before thes
 
 ## Authentication and authorisation
 
-> **Status: authentication is designed in `docs/design.md` section 7c** (standard input as the credential source, PBKDF2 and a key scheme, a cost budget); the hash is built and measured. Where this section says a file read at start, section 7c replaces it: the path would be fixed at compile time and the label wider. Authorisation, reload and certificates are still as described below.
+> **Status: authentication is built** (`--auth stdin`; `docs/design.md` section 7c: standard input as the credential source, PBKDF2 and a key scheme, a cost budget). Where this section says a file read at start, section 7c replaces it: the path would be fixed at compile time and the label wider. Authorisation, reload and certificates are still as described below.
 
 **Why out.** v1 is anonymous: the codec decodes the user name and password fields (`wire.cho`, `c_user`, `c_pass`) so a client
 that sends them is not refused, and the broker ignores them. There is no credential source, and a broker without one cannot
@@ -146,7 +146,7 @@ only that path, and the report says so.
 **Why out.** It is the largest item here and the one that would most change the code. MQTT 5 adds properties on every packet,
 reason codes and reason strings on acknowledgements, session expiry in place of clean-session, topic aliases, shared
 subscriptions, subscription options (no-local, retain-as-published, retain handling), flow control (receive maximum), server
-disconnect with a reason, and enhanced authentication. The codec, the 28 connection rules (each maps to one or more 5 reason
+disconnect with a reason, and enhanced authentication. The codec, the 31 connection rules (each maps to one or more 5 reason
 codes), the queue entry format, the session model and the memory bounds all change.
 
 **Cost.** A second codec with the first kept, since 3.1.1 clients do not go away; per-connection protocol level; properties

@@ -6,6 +6,7 @@ The broker under test is `build/mqtt`, or $MQTT. Every test starts its own broke
 on a free port, reads the NDJSON log it writes, and stops it with SIGTERM.
 """
 
+import hashlib
 import json
 import os
 import pathlib
@@ -34,19 +35,39 @@ def _no_thp():
         pass
 
 
+def user_line(name, password, iterations=1000):
+    """One line of the credential table, the `pbkdf2-sha256` scheme (what scripts/passwd.py writes)."""
+    salt = os.urandom(16)
+    dk = hashlib.pbkdf2_hmac("sha256", password.encode() if isinstance(password, str) else password, salt, iterations, 32)
+    return "%s:pbkdf2-sha256$%d$%s$%s\n" % (name, iterations, salt.hex(), dk.hex())
+
+
+def key_line(name, secret):
+    """One line of the credential table, the one-hash `sha256` scheme, for a generated secret."""
+    salt = os.urandom(16)
+    return "%s:sha256$%s$%s\n" % (name, salt.hex(), hashlib.sha256(salt + secret.encode()).hexdigest())
+
+
 class Broker:
     """`mqtt serve` as a child process; its standard output is the log."""
 
-    def __init__(self, *flags, port=None, no_thp=False):
+    def __init__(self, *flags, port=None, no_thp=False, users=None):
         """`no_thp`: run the broker with transparent huge pages off (PR_SET_THP_DISABLE), for the
         tests that measure resident size: with THP `always` (the CI runners') the first touch of
         a 2 MiB-aligned part of a large table makes the whole 2 MiB resident, so a table that is
         only touched lazily still grows in 2 MiB steps, at moments the workload does not choose."""
         self.port = port or free_port()
         self.flags = list(flags)
+        if users is not None:
+            self.flags += ["--auth", "stdin"]
         self.proc = subprocess.Popen([BINARY, "serve", "--port", str(self.port), *self.flags],
+                                     stdin=subprocess.PIPE if users is not None else None,
                                      stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                      preexec_fn=_no_thp if no_thp else None)
+        if users is not None:
+            # The credential table (docs/design.md section 7c), written once and closed, as a supervisor would.
+            self.proc.stdin.write(users if isinstance(users, bytes) else users.encode())
+            self.proc.stdin.close()
         self.lines = []
         self._buf = b""
         os.set_blocking(self.proc.stdout.fileno(), False)

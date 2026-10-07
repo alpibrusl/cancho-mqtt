@@ -12,4 +12,4 @@
 # perimeter's business (cancho docs/net.md section 2).
 
 [mqtt]
-allow = ["args", "heap", "net_in(\"\")", "conn_accept", "conn_read", "conn_write", "poll", "clock", "io_write", "err_write", "signals(\"INT,TERM\")", "signals_read"]
+allow = ["args", "heap", "net_in(\"\")", "conn_accept", "conn_read", "conn_write", "poll", "clock", "io_write", "io_read", "err_write", "signals(\"INT,TERM\")", "signals_read"]

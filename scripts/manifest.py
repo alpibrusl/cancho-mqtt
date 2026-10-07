@@ -33,8 +33,10 @@ import sys
 import tomllib
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-# Never allowed, whatever ceiling.toml says: persistence, foreign code, bridging.
-FORBIDDEN = {"ffi", "net_out", "fs_read", "fs_write", "file_read", "file_write", "dir_read", "dir_write", "io_read"}
+# Never allowed, whatever ceiling.toml says: persistence, foreign code, bridging. `io_read` was on this list until
+# authentication (docs/design.md section 7c): standard input is the credential table, read once, at start. It is allowed by
+# ceiling.toml and by nothing else, and every file label stays forbidden.
+FORBIDDEN = {"ffi", "net_out", "fs_read", "fs_write", "file_read", "file_write", "dir_read", "dir_write"}
 
 
 def compiler():

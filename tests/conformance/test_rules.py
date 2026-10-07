@@ -9,7 +9,7 @@ import time
 import unittest
 
 from harness import (Broker, Client, Closed, PINGREQ, connect_packet, publish_packet, subscribe_packet,
-                     pkt, s16, puback_packet, records, run)
+                     pkt, s16, puback_packet, records, run, user_line)
 
 FIXTURES = {}
 
@@ -22,8 +22,8 @@ def fixture(tag):
 
 
 class Rules(unittest.TestCase):
-    def start(self, *flags):
-        broker = Broker(*flags)
+    def start(self, *flags, users=None):
+        broker = Broker(*flags, users=users)
         self.addCleanup(broker.__exit__, None, None, None)
         self.broker = broker
         return broker
@@ -197,6 +197,35 @@ class Rules(unittest.TestCase):
         c.send(publish_packet("$SYS/broker/uptime", b"forged", qos=1, pid=3))
         c.expect(4)
         self.logged("protocol.reserved-topic")
+
+    @fixture("auth.required")
+    def test_auth_required(self):
+        # With a credential table, a CONNECT without a user name is not authorised (CONNACK 5).
+        self.start(users=user_line("alice", "pw"))
+        c = self.client()
+        c.connect("a", expect_code=5)
+        self.assertTrue(c.closed())
+        self.logged("auth.required")
+
+    @fixture("auth.bad-credentials")
+    def test_auth_bad_credentials(self):
+        self.start(users=user_line("alice", "pw"))
+        c = self.client()
+        c.connect("a", expect_code=4, username="alice", password="wrong")
+        self.assertTrue(c.closed())
+        self.logged("auth.bad-credentials")
+
+    @fixture("limit.auth-budget")
+    def test_auth_budget(self):
+        # Two logins of 1,000 iterations do not fit in a budget of 1,500 in one second; the second is refused (CONNACK 3).
+        self.start("--auth-budget", "1500", users=user_line("alice", "pw", iterations=1000))
+        codes = []
+        for i in range(8):
+            c = self.client()
+            c.send(connect_packet("c%d" % i, username="alice", password="pw"))
+            codes.append(c.expect(2)[1][1])
+        self.assertIn(3, codes)
+        self.logged("limit.auth-budget")
 
     @fixture("protocol.qos3")
     def test_qos3(self):
@@ -391,7 +420,7 @@ class Rules(unittest.TestCase):
         status, out, err = run("rules")
         self.assertEqual(status, 0)
         tags = [r["tag"] for r in records(out) if r["type"] == "rule"]
-        self.assertEqual(len(tags), 28)
+        self.assertEqual(len(tags), 31)
         self.assertEqual(sorted(tags), sorted(FIXTURES), "rules without a fixture, or fixtures without a rule")
         for name in FIXTURES.values():
             self.assertTrue(hasattr(Rules, name))

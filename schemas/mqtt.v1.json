@@ -234,7 +234,10 @@
             "limit.will-size",
             "limit.output-full",
             "limit.qos2-inbound",
-            "protocol.reserved-topic"
+            "protocol.reserved-topic",
+            "auth.required",
+            "auth.bad-credentials",
+            "limit.auth-budget"
           ]
         },
         "connection": {
@@ -445,6 +448,18 @@
             "protocol.reserved-topic": {
               "type": "integer",
               "minimum": 0
+            },
+            "auth.required": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "auth.bad-credentials": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "limit.auth-budget": {
+              "type": "integer",
+              "minimum": 0
             }
           },
           "required": [
@@ -475,7 +490,10 @@
             "limit.will-size",
             "limit.output-full",
             "limit.qos2-inbound",
-            "protocol.reserved-topic"
+            "protocol.reserved-topic",
+            "auth.required",
+            "auth.bad-credentials",
+            "limit.auth-budget"
           ],
           "additionalProperties": false
         }
@@ -534,7 +552,10 @@
             "limit.will-size",
             "limit.output-full",
             "limit.qos2-inbound",
-            "protocol.reserved-topic"
+            "protocol.reserved-topic",
+            "auth.required",
+            "auth.bad-credentials",
+            "limit.auth-budget"
           ]
         },
         "action": {

@@ -7,8 +7,8 @@ Blocks, each between `<!-- gen:NAME -->` and `<!-- /gen:NAME -->` in README.md a
            message, a `$SYS` topic, the end record, and the authority row;
   counts   how many tests there are, counted from the files;
   numbers  the saturated fan-out medians of the benchmark, from bench/results.json;
-  case_presence, case_refusal, case_sizing
-           the three business cases of the page, each run against the built program.
+  case_presence, case_refusal, case_sizing, case_auth
+           the four business cases of the page, each run against the built program.
 
     python3 scripts/site.py           # rewrite the blocks
     python3 scripts/site.py --check   # change nothing; exit 1 if a block is stale (CI)
@@ -109,12 +109,17 @@ def flow():
 class Broker:
     """A broker on a free port for one case; `shown` rewrites that port to 1883 in what is printed."""
 
-    def __init__(self, *args):
+    def __init__(self, *args, users=None):
         self.env = dict(os.environ, PATH=str(ROOT / "build") + os.pathsep + os.environ["PATH"])
         self.port = free_port()
         self.p = str(self.port)
-        self.proc = subprocess.Popen(["mqtt", "serve", "--port", self.p, "--stats-seconds", "0", *args], env=self.env,
+        self.proc = subprocess.Popen(["mqtt", "serve", "--port", self.p, "--stats-seconds", "0", *args,
+                                      *(["--auth", "stdin"] if users is not None else [])], env=self.env,
+                                     stdin=subprocess.PIPE if users is not None else None,
                                      stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        if users is not None:
+            self.proc.stdin.write(users)
+            self.proc.stdin.close()
         self.first = self.proc.stdout.readline()
 
     def shown(self, text):
@@ -187,6 +192,35 @@ def case_refusal():
     return "\n".join(out)
 
 
+def case_auth():
+    line = subprocess.run([sys.executable, str(ROOT / "scripts" / "passwd.py"), "gateway-1"], input="correct horse", text=True,
+                          capture_output=True, timeout=30).stdout
+    b = Broker(users=line)
+    out = ["# On a shared network only known gateways may connect: a table made by the script, read once from standard input",
+           "$ printf 'correct horse' | python3 scripts/passwd.py gateway-1 >> users.txt",
+           "$ mqtt serve --port 1883 --auth stdin < users.txt > broker.log &"]
+    try:
+        for label, extra, args in (("# no credentials", "", []),
+                                   ("# the wrong password", " -u gateway-1 -P wrong", ["-u", "gateway-1", "-P", "wrong"]),
+                                   ("# the right one", " -u gateway-1 -P 'correct horse'", ["-u", "gateway-1", "-P", "correct horse"])):
+            cmd = ["mosquitto_pub", "-p", b.p, "-t", "plant/line1/temp", "-m", "71.5", *args]
+            out.append(label)
+            out.append("$ mosquitto_pub -p 1883 -t plant/line1/temp -m 71.5" + extra)
+            r = run(cmd)
+            out.append((r.stderr.strip() or "accepted").splitlines()[0])
+        time.sleep(0.3)
+        records = b.stop()
+        out.append("")
+        out.append("# Each refusal is a named rule, with no user name or password in the log")
+        out.append("$ jq -c 'select(.type==\"refusal\") | {rule}' broker.log")
+        for r in records:
+            if r.get("type") == "refusal":
+                out.append(json.dumps({"rule": r["rule"]}, separators=(",", ":")))
+    finally:
+        b.kill()
+    return "\n".join(out)
+
+
 def case_sizing():
     out = ["# Know the memory before it accepts a connection: it is computed from the flags and printed at start"]
     for args in (["--max-connections", "1024"], ["--max-connections", "8192", "--queue-bytes", "65536"]):
@@ -202,7 +236,7 @@ def case_sizing():
 def counts():
     py = sum(len(re.findall(r"^    def test_", p.read_text(), re.M)) for p in (ROOT / "tests" / "conformance").glob("test_*.py"))
     cho = sum(len(re.findall(r"^pub fn test_", p.read_text(), re.M)) for p in (ROOT / "tests").glob("*_test.cho"))
-    return "%d black-box tests that read only what a client sees, and %d unit tests of the codec, the topic trie and the flag table" % (py, cho)
+    return "%d black-box tests that read only what a client sees, and %d unit tests of the codec, the topic trie, the flag table and the password hash" % (py, cho)
 
 
 def numbers():
@@ -237,7 +271,7 @@ def ratio():
     return "%d%%" % round(100 * r)
 
 
-BLOCKS = {"flow": flow, "case_presence": case_presence, "case_refusal": case_refusal, "case_sizing": case_sizing, "counts": counts, "numbers": numbers, "latency": latency, "ratio": ratio}
+BLOCKS = {"flow": flow, "case_presence": case_presence, "case_refusal": case_refusal, "case_sizing": case_sizing, "case_auth": case_auth, "counts": counts, "numbers": numbers, "latency": latency, "ratio": ratio}
 
 
 def render(name, body, path):
