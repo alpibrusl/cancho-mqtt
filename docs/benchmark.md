@@ -219,3 +219,17 @@ pairs ranged from 8.3 percent slower to 5.7 percent faster, and the spread of on
 detectable at a resolution of about 2 to 3 percent; a real one of 1 percent would not have been seen.** An earlier run of 7 pairs, with
 the before build always first, gave 1.4 percent slower by medians and the same spread; the order was the likely cause and it is
 replaced by the alternating run, not hidden.
+
+**The transport hooks** (a second change to the same path: the per-event calls `pump`, `more`, `wants_write` and `expired`, the
+secure-listener token, and the accept loop matching an optional listener), measured against the build from before the transport
+module existed, so the two changes together: 14 more pairs, order alternating, same machine and method.
+
+| | Deliveries a second, median (range) |
+|---|---|
+| before the transport module | 1,728,380 (1,663,090 to 1,802,663) |
+| with the module and its hooks | 1,728,744 (1,653,947 to 1,870,433) |
+
+Paired, the later build was **0.3 percent faster on average, with a standard error of 0.8 percent**, and slower in 7 of 14 pairs
+(from 5.7 percent slower to 4.7 percent faster; one pair varies by about 3 percent). **No difference is detectable at about 2
+percent.** The plain transport's hooks are constant functions, so this was expected; it is measured because the claim that they cost
+nothing is the kind that is wrong without being noticed.

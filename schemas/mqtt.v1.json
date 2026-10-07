@@ -237,7 +237,10 @@
             "protocol.reserved-topic",
             "auth.required",
             "auth.bad-credentials",
-            "limit.auth-budget"
+            "limit.auth-budget",
+            "limit.tls-connections",
+            "timeout.tls-handshake",
+            "tls.failed"
           ]
         },
         "connection": {
@@ -460,6 +463,18 @@
             "limit.auth-budget": {
               "type": "integer",
               "minimum": 0
+            },
+            "limit.tls-connections": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "timeout.tls-handshake": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "tls.failed": {
+              "type": "integer",
+              "minimum": 0
             }
           },
           "required": [
@@ -493,7 +508,10 @@
             "protocol.reserved-topic",
             "auth.required",
             "auth.bad-credentials",
-            "limit.auth-budget"
+            "limit.auth-budget",
+            "limit.tls-connections",
+            "timeout.tls-handshake",
+            "tls.failed"
           ],
           "additionalProperties": false
         }
@@ -555,7 +573,10 @@
             "protocol.reserved-topic",
             "auth.required",
             "auth.bad-credentials",
-            "limit.auth-budget"
+            "limit.auth-budget",
+            "limit.tls-connections",
+            "timeout.tls-handshake",
+            "tls.failed"
           ]
         },
         "action": {
