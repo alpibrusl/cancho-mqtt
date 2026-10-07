@@ -37,6 +37,8 @@ $ mqtt introspect | jq -c '.authority | {bounded, effects}'
 ```
 <!-- /gen:flow -->
 
+**[Download the binary](https://github.com/alpibrusl/cancho-mqtt/releases/download/latest/mqtt-linux-x86_64)** (Linux x86-64, built and tested by CI on the latest commit of `main`; [checksum and authority report](https://github.com/alpibrusl/cancho-mqtt/releases/tag/latest)) · [project page](https://alpibrusl.github.io/cancho-mqtt/)
+
 ## Why cancho-mqtt?
 
 Most brokers optimise for features and scale out. This one optimises for being *predictable and checkable* on one core.
@@ -47,6 +49,57 @@ Most brokers optimise for features and scale out. This one optimises for being *
 * **Errors and logs are data.** A process error is one JSON line with a rule, a hint and, where a script can apply it safely, a repair that never widens authority. The log is bounded NDJSON that ends with an `end` record, and no payload is ever logged. `--format text` is for people.
 * **Tested against Mosquitto.** The same scenarios, scripted and generated, run against this broker and Mosquitto 2.0.18, and what each client sees is compared. The two differences are written down and asserted. [docs/design.md](docs/design.md) section 9
 * **Measured.** Against five other brokers, with the conditions and what was *not* measured. [docs/benchmark.md](docs/benchmark.md)
+
+## Where it would earn its place
+
+Three scenarios, each run against the built program (`scripts/site.py --check` fails CI if the output drifts). They illustrate the properties above; they are not reports of deployments.
+
+**1. Plant-floor gateways and dashboards: last value and presence.** Retained messages hold the last reading, a will turns a dead gateway into an `offline` message, and a dashboard that connects later needs no polling.
+
+<!-- gen:case_presence -->
+```console
+# A gateway on the plant network keeps its last reading and its state where anyone can read them
+$ mosquitto_pub -p 1883 -t plant/line1/temp -m 71.5 -r -q 1
+$ mosquitto_pub -p 1883 -t plant/line1/status -m online -r -q 1
+
+# It registered a will; the power is cut (SIGKILL, no DISCONNECT) and the broker publishes the will
+$ mosquitto_sub -p 1883 -i gw-line1 -t gw/in --will-topic plant/line1/status --will-payload offline --will-retain -q 1 &
+$ kill -9 $!
+
+# A dashboard that connects afterwards sees the last state of everything
+$ mosquitto_sub -p 1883 -t 'plant/#' -v -C 2 | sort
+plant/line1/status offline
+plant/line1/temp 71.5
+```
+<!-- /gen:case_presence -->
+
+**2. Test and staging brokers that explain themselves.** Every refusal is a named rule with a log record a test can assert on.
+
+<!-- gen:case_refusal -->
+```console
+# A test harness sets tight limits and asserts on what the broker refuses, by rule
+$ mqtt serve --port 1883 --max-packet 256 > broker.log &
+$ mosquitto_pub -p 1883 -t sensors/big -m "$(head -c 1000 /dev/zero | tr '\0' x)"
+$ jq -c 'select(.type=="refusal") | {rule, client_id}' broker.log
+{"rule":"limit.packet-size","client_id":"auto-1"}
+
+# and what the broker does for that rule is data too
+$ mqtt rules | jq -c 'select(.tag=="limit.packet-size")'
+{"type":"rule","tag":"limit.packet-size","action":"close"}
+```
+<!-- /gen:case_refusal -->
+
+**3. Small fixed boxes: size it before you deploy it.** The footprint is a number printed on the first log line, not a function of the workload.
+
+<!-- gen:case_sizing -->
+```console
+# Know the memory before it accepts a connection: it is computed from the flags and printed at start
+$ mqtt serve --port 1883 --max-connections 1024 | head -1
+{"type":"listening","port":1883,"max_connections":1024,"max_packet":16384,"memory_bytes":73099264,"t_ms":0}
+$ mqtt serve --port 1883 --max-connections 8192 --queue-bytes 65536 | head -1
+{"type":"listening","port":1883,"max_connections":8192,"max_packet":16384,"memory_bytes":713771008,"t_ms":0}
+```
+<!-- /gen:case_sizing -->
 
 ## Quick start
 

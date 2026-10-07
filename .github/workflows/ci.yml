@@ -8,6 +8,8 @@ on:
 jobs:
   gate:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -80,3 +82,47 @@ jobs:
         run: |
           pip install jsonschema
           python3 -W ignore -m unittest discover -s tests/conformance -v
+
+      # The binary that passed every check above, kept for the release job and
+      # for reviewers of a pull request.
+      - name: Keep the binary and what describes it
+        run: |
+          mkdir dist
+          cp build/mqtt dist/mqtt-linux-x86_64
+          cp manifests/mqtt.authority.json dist/mqtt.authority.json
+          (cd dist && sha256sum mqtt-linux-x86_64 > mqtt-linux-x86_64.sha256)
+          cat dist/mqtt-linux-x86_64.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mqtt-linux-x86_64
+          path: dist/
+          if-no-files-found: error
+
+  # A rolling pre-release named "latest": the project page's download button
+  # points at it. Only a push to main publishes; a pull request never does.
+  release:
+    needs: gate
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency: release-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: mqtt-linux-x86_64
+          path: dist
+
+      - name: Publish the pre-release "latest"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          (cd dist && sha256sum -c mqtt-linux-x86_64.sha256)
+          gh release delete latest --cleanup-tag --yes || true
+          gh release create latest dist/* \
+            --target "$SHA" --prerelease \
+            --title "latest (${SHA::7})" \
+            --notes "The binary the CI gate built and tested on commit $SHA: formatting, unit, conformance, interop and differential checks passed. Linux x86-64, dynamically linked, built on ubuntu-latest. mqtt.authority.json is the authority report it was compared with. Verify with sha256sum -c mqtt-linux-x86_64.sha256."

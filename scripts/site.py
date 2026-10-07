@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """The README's and the project page's examples are the binary's output, generated and checked.
 
-Three blocks, each between `<!-- gen:NAME -->` and `<!-- /gen:NAME -->` in README.md and docs/index.html:
+Blocks, each between `<!-- gen:NAME -->` and `<!-- /gen:NAME -->` in README.md and docs/index.html:
 
   flow     a complete session run against the built program: a refusal with its repair, the broker, a retained
            message, a `$SYS` topic, the end record, and the authority row;
   counts   how many tests there are, counted from the files;
-  numbers  the saturated fan-out medians of the benchmark, from bench/results.json.
+  numbers  the saturated fan-out medians of the benchmark, from bench/results.json;
+  case_presence, case_refusal, case_sizing
+           the three business cases of the page, each run against the built program.
 
     python3 scripts/site.py           # rewrite the blocks
     python3 scripts/site.py --check   # change nothing; exit 1 if a block is stale (CI)
@@ -104,6 +106,99 @@ def flow():
     return "\n".join(lines)
 
 
+class Broker:
+    """A broker on a free port for one case; `shown` rewrites that port to 1883 in what is printed."""
+
+    def __init__(self, *args):
+        self.env = dict(os.environ, PATH=str(ROOT / "build") + os.pathsep + os.environ["PATH"])
+        self.port = free_port()
+        self.p = str(self.port)
+        self.proc = subprocess.Popen(["mqtt", "serve", "--port", self.p, "--stats-seconds", "0", *args], env=self.env,
+                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        self.first = self.proc.stdout.readline()
+
+    def shown(self, text):
+        return text.replace(self.p, str(SHOWN_PORT))
+
+    def stop(self):
+        self.proc.send_signal(signal.SIGTERM)
+        rest = self.proc.stdout.read()
+        self.proc.wait(timeout=10)
+        return [json.loads(l) for l in (self.first + rest).splitlines() if l.strip()]
+
+    def kill(self):
+        if self.proc.poll() is None:
+            self.proc.kill()
+
+
+def case_presence():
+    b = Broker()
+    out = []
+    try:
+        out.append("# A gateway on the plant network keeps its last reading and its state where anyone can read them")
+        out.append("$ mosquitto_pub -p 1883 -t plant/line1/temp -m 71.5 -r -q 1")
+        run(["mosquitto_pub", "-p", b.p, "-t", "plant/line1/temp", "-m", "71.5", "-r", "-q", "1"])
+        out.append("$ mosquitto_pub -p 1883 -t plant/line1/status -m online -r -q 1")
+        run(["mosquitto_pub", "-p", b.p, "-t", "plant/line1/status", "-m", "online", "-r", "-q", "1"])
+        out.append("")
+        out.append("# It registered a will; the power is cut (SIGKILL, no DISCONNECT) and the broker publishes the will")
+        out.append("$ mosquitto_sub -p 1883 -i gw-line1 -t gw/in --will-topic plant/line1/status --will-payload offline --will-retain -q 1 &")
+        out.append("$ kill -9 $!")
+        gw = subprocess.Popen(["mosquitto_sub", "-p", b.p, "-i", "gw-line1", "-t", "gw/in", "--will-topic", "plant/line1/status",
+                               "--will-payload", "offline", "--will-retain", "-q", "1"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        time.sleep(0.7)
+        gw.kill()
+        gw.wait()
+        time.sleep(0.7)
+        out.append("")
+        out.append("# A dashboard that connects afterwards sees the last state of everything")
+        out.append("$ mosquitto_sub -p 1883 -t 'plant/#' -v -C 2 | sort")
+        got = run(["mosquitto_sub", "-p", b.p, "-t", "plant/#", "-v", "-C", "2", "-W", "5"]).stdout.split("\n")
+        out.extend(sorted(l for l in got if l))
+        b.stop()
+    finally:
+        b.kill()
+    return "\n".join(out)
+
+
+def case_refusal():
+    b = Broker("--max-packet", "256")
+    out = []
+    try:
+        out.append("# A test harness sets tight limits and asserts on what the broker refuses, by rule")
+        out.append("$ mqtt serve --port 1883 --max-packet 256 > broker.log &")
+        out.append("$ mosquitto_pub -p 1883 -t sensors/big -m \"$(head -c 1000 /dev/zero | tr '\\0' x)\"")
+        run(["mosquitto_pub", "-p", b.p, "-t", "sensors/big", "-m", "x" * 1000])
+        time.sleep(0.3)
+        records = b.stop()
+        out.append("$ jq -c 'select(.type==\"refusal\") | {rule, client_id}' broker.log")
+        for r in records:
+            if r.get("type") == "refusal":
+                out.append(json.dumps({"rule": r["rule"], "client_id": r["client_id"]}, separators=(",", ":")))
+        out.append("")
+        out.append("# and what the broker does for that rule is data too")
+        out.append("$ mqtt rules | jq -c 'select(.tag==\"limit.packet-size\")'")
+        env = dict(os.environ, PATH=str(ROOT / "build") + os.pathsep + os.environ["PATH"])
+        for l in run(["mqtt", "rules"], env=env).stdout.splitlines():
+            if '"limit.packet-size"' in l:
+                out.append(l)
+    finally:
+        b.kill()
+    return "\n".join(out)
+
+
+def case_sizing():
+    out = ["# Know the memory before it accepts a connection: it is computed from the flags and printed at start"]
+    for args in (["--max-connections", "1024"], ["--max-connections", "8192", "--queue-bytes", "65536"]):
+        b = Broker(*args)
+        try:
+            out.append("$ mqtt serve --port 1883 %s | head -1" % " ".join(args))
+            out.append(b.shown(b.first.rstrip()))
+        finally:
+            b.stop()
+    return "\n".join(out)
+
+
 def counts():
     py = sum(len(re.findall(r"^    def test_", p.read_text(), re.M)) for p in (ROOT / "tests" / "conformance").glob("test_*.py"))
     cho = sum(len(re.findall(r"^pub fn test_", p.read_text(), re.M)) for p in (ROOT / "tests").glob("*_test.cho"))
@@ -142,12 +237,12 @@ def ratio():
     return "%d%%" % round(100 * r)
 
 
-BLOCKS = {"flow": flow, "counts": counts, "numbers": numbers, "latency": latency, "ratio": ratio}
+BLOCKS = {"flow": flow, "case_presence": case_presence, "case_refusal": case_refusal, "case_sizing": case_sizing, "counts": counts, "numbers": numbers, "latency": latency, "ratio": ratio}
 
 
 def render(name, body, path):
     if path.suffix == ".html":
-        if name == "flow":
+        if name == "flow" or name.startswith("case_"):
             return "<pre><code>" + html.escape(body) + "</code></pre>"
         if name == "numbers":
             lines = body.split("\n")
@@ -158,7 +253,7 @@ def render(name, body, path):
                 table += "<tr>" + "".join("<td>%s</td>" % html.escape(c) for c in r) + "</tr>"
             return "<p>" + html.escape(lines[0]) + "</p>" + table + "</tbody></table>"
         return html.escape(body)
-    if name == "flow":
+    if name == "flow" or name.startswith("case_"):
         return "```console\n" + body + "\n```"
     return body
 

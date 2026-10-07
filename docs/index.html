@@ -78,7 +78,8 @@ footer { border-top: 1px solid var(--rule); margin: 56px 0 32px; padding-top: 16
     <span class="badge">EUPL-1.2</span>
   </div>
   <div class="cta">
-    <a class="btn primary" href="#try">Try it</a>
+    <a class="btn primary" href="https://github.com/alpibrusl/cancho-mqtt/releases/download/latest/mqtt-linux-x86_64" download>Download the binary</a>
+    <a class="btn" href="#try">Try it</a>
     <a class="btn" href="https://github.com/alpibrusl/cancho-mqtt">Source on GitHub</a>
   </div>
 </header>
@@ -150,6 +151,47 @@ $ mqtt introspect | jq -c &#x27;.authority | {bounded, effects}&#x27;
 <!-- /gen:numbers -->
 <p><!-- gen:latency -->Latency with one message in flight: p50 42 microseconds (Mosquitto 46; the probe is Python, so a few microseconds either way is not evidence). Memory with 5,000 idle connections: 14 MiB (Mosquitto 38).<!-- /gen:latency --> The conditions, what was not measured, and the results that are not explained are in <a href="https://github.com/alpibrusl/cancho-mqtt/blob/main/docs/benchmark.md">docs/benchmark.md</a>.</p>
 
+<h2 id="cases">Where it would earn its place</h2>
+<p>Three scenarios, each run against the built program; <code>scripts/site.py --check</code> fails CI if the output drifts. They are illustrations of the properties above, not reports of deployments: nobody runs this in production yet.</p>
+
+<h3>1. Plant-floor gateways and dashboards: last value and presence</h3>
+<p>Operators want the state of every line (or charger, or pump) at a glance, including the ones that just lost power. Retained messages hold the last reading, a will turns a dead gateway into an <code>offline</code> message, and a dashboard that connects later needs no polling.</p>
+<!-- gen:case_presence -->
+<pre><code># A gateway on the plant network keeps its last reading and its state where anyone can read them
+$ mosquitto_pub -p 1883 -t plant/line1/temp -m 71.5 -r -q 1
+$ mosquitto_pub -p 1883 -t plant/line1/status -m online -r -q 1
+
+# It registered a will; the power is cut (SIGKILL, no DISCONNECT) and the broker publishes the will
+$ mosquitto_sub -p 1883 -i gw-line1 -t gw/in --will-topic plant/line1/status --will-payload offline --will-retain -q 1 &amp;
+$ kill -9 $!
+
+# A dashboard that connects afterwards sees the last state of everything
+$ mosquitto_sub -p 1883 -t &#x27;plant/#&#x27; -v -C 2 | sort
+plant/line1/status offline
+plant/line1/temp 71.5</code></pre><!-- /gen:case_presence -->
+
+<h3>2. Test and staging brokers that explain themselves</h3>
+<p>A broker for integration tests should fail loudly and say why. Every refusal is a named rule with a log record a test can assert on, so "the client was disconnected" becomes "<code>limit.packet-size</code>, client <code>auto-1</code>".</p>
+<!-- gen:case_refusal -->
+<pre><code># A test harness sets tight limits and asserts on what the broker refuses, by rule
+$ mqtt serve --port 1883 --max-packet 256 &gt; broker.log &amp;
+$ mosquitto_pub -p 1883 -t sensors/big -m &quot;$(head -c 1000 /dev/zero | tr &#x27;\0&#x27; x)&quot;
+$ jq -c &#x27;select(.type==&quot;refusal&quot;) | {rule, client_id}&#x27; broker.log
+{&quot;rule&quot;:&quot;limit.packet-size&quot;,&quot;client_id&quot;:&quot;auto-1&quot;}
+
+# and what the broker does for that rule is data too
+$ mqtt rules | jq -c &#x27;select(.tag==&quot;limit.packet-size&quot;)&#x27;
+{&quot;type&quot;:&quot;rule&quot;,&quot;tag&quot;:&quot;limit.packet-size&quot;,&quot;action&quot;:&quot;close&quot;}</code></pre><!-- /gen:case_refusal -->
+
+<h3>3. Small fixed boxes: size it before you deploy it</h3>
+<p>On an edge gateway or a shared host the question is how much memory the broker will take. The tables are allocated at start from the flags, so the footprint is a number printed on the first log line, not a function of the workload.</p>
+<!-- gen:case_sizing -->
+<pre><code># Know the memory before it accepts a connection: it is computed from the flags and printed at start
+$ mqtt serve --port 1883 --max-connections 1024 | head -1
+{&quot;type&quot;:&quot;listening&quot;,&quot;port&quot;:1883,&quot;max_connections&quot;:1024,&quot;max_packet&quot;:16384,&quot;memory_bytes&quot;:73099264,&quot;t_ms&quot;:0}
+$ mqtt serve --port 1883 --max-connections 8192 --queue-bytes 65536 | head -1
+{&quot;type&quot;:&quot;listening&quot;,&quot;port&quot;:1883,&quot;max_connections&quot;:8192,&quot;max_packet&quot;:16384,&quot;memory_bytes&quot;:713771008,&quot;t_ms&quot;:0}</code></pre><!-- /gen:case_sizing -->
+
 <h2 id="fits">Where it fits</h2>
 <div class="two">
 <div>
@@ -182,7 +224,11 @@ $ mqtt introspect | jq -c &#x27;.authority | {bounded, effects}&#x27;
 </ul>
 <p>What each missing piece would cost, in what order, and what it would do to the authority report: <a href="https://github.com/alpibrusl/cancho-mqtt/blob/main/docs/later.md">docs/later.md</a>.</p>
 
-<h2 id="try">Try it</h2>
+<h2 id="download">Download</h2>
+<p><a class="btn primary" href="https://github.com/alpibrusl/cancho-mqtt/releases/download/latest/mqtt-linux-x86_64" download>mqtt-linux-x86_64</a> <a class="btn" href="https://github.com/alpibrusl/cancho-mqtt/releases/tag/latest">checksum, authority report and release notes</a></p>
+<p>The file is the binary the CI gate built and tested on the commit it names, from the latest push to <code>main</code>: the same formatting, unit, conformance, interop and differential checks, and the authority report it was compared with. It is a dynamically linked x86-64 Linux executable built on Ubuntu, so it needs a glibc at least that new; there are no builds for other systems yet. Verify it with <code>sha256sum -c mqtt-linux-x86_64.sha256</code>, then <code>chmod +x mqtt-linux-x86_64 &amp;&amp; ./mqtt-linux-x86_64 introspect</code>.</p>
+
+<h2 id="try">Build it yourself</h2>
 <p>You need <code>git</code>, Rust, <code>gcc</code> and Python 3; the <code>mosquitto-clients</code> package to talk to it.</p>
 <pre><code>git clone https://github.com/alpibrusl/cancho                         # the compiler
 git clone https://github.com/alpibrusl/cancho-mqtt &amp;&amp; cd cancho-mqtt
