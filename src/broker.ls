@@ -504,14 +504,19 @@ fn handle_connect[&t, &c, &p](tab: &!t conns.Table, core: &!c tables.Core, k: in
         close_conn(tab, core, k, rules.of_wire(r), false, true);
         return 1;
     }
-    if ct[0] != 4 {
+    // MQTT 3.1.1 is name `MQTT` with level 4; 3.1 is name `MQIsdp` with level 3. Any other
+    // pairing is an unacceptable protocol version (CONNACK 0x01), as Mosquitto answers it.
+    let legacy = ct[wire.c_legacy()];
+    if legacy == 0 && ct[0] != 4 || legacy == 1 && ct[0] != 3 {
         return refuse_connect(tab, core, k, rules.unsupported_level(), 1);
     }
     let flags = ct[1];
     let clean = flags >> 1 & 1;
     let will = flags >> 2 & 1;
     var idlen = ct[4];
-    if idlen == 0 && clean == 0 {
+    // 3.1.1 allows an empty identifier with a clean session; 3.1 requires one (Mosquitto
+    // answers 0x02 for it with either clean-session value).
+    if idlen == 0 && (clean == 0 || legacy == 1) {
         return refuse_connect(tab, core, k, rules.client_id(), 2);
     }
     if idlen > core.idmax {
@@ -590,7 +595,13 @@ fn handle_connect[&t, &c, &p](tab: &!t conns.Table, core: &!c tables.Core, k: in
     }
     region a {
         let b = alloc_slice[a](4, byte_of(0));
-        let n = wire.put_connack(b, 0, present, 0);
+        // MQTT 3.1 has no session-present flag (the byte is reserved): 0 for a 3.1 client, the
+        // session is resumed all the same, as Mosquitto does.
+        var shown = present;
+        if legacy == 1 {
+            shown = 0;
+        }
+        let n = wire.put_connack(b, 0, shown, 0);
         if send_direct(tab, k, b[0..n]) < 0 {
             close_conn(tab, core, k, 0 - 1, true, true);
             return 1;

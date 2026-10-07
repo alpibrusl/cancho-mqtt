@@ -290,14 +290,21 @@ pub fn c_pass() -> [] int {
     return 11;
 }
 
-pub fn connect_slots() -> [] int {
+// 1 when the protocol name was `MQIsdp` (MQTT 3.1), 0 for `MQTT` (3.1.1).
+pub fn c_legacy() -> [] int {
     return 13;
+}
+
+pub fn connect_slots() -> [] int {
+    return 14;
 }
 
 // Decode a CONNECT whose whole packet is `data` into `t` (`connect_slots` slots).
 // 0 on success, or the refusal. The protocol *level* is stored and checked by the
 // caller, because an unsupported level is answered with a CONNACK, not a close;
-// everything that must close the connection is refused here.
+// everything that must close the connection is refused here. The name is `MQTT`
+// (level 4 is the one the broker serves) or `MQIsdp` (MQTT 3.1, level 3); which one
+// is in slot `c_legacy`, and the caller checks that name and level go together.
 pub fn decode_connect[&d, &t](data: &d [byte], t: &!t [int]) -> [] int {
     let end = len(data);
     var p = header_size(data);
@@ -309,7 +316,10 @@ pub fn decode_connect[&d, &t](data: &d [byte], t: &!t [int]) -> [] int {
     if p + nlen > end {
         return e_malformed();
     }
-    if nlen != 4 || int_of(data[p]) != 77 || int_of(data[p + 1]) != 81 || int_of(data[p + 2]) != 84 || int_of(data[p + 3]) != 84 {
+    var legacy = 0;
+    if nlen == 6 && int_of(data[p]) == 77 && int_of(data[p + 1]) == 81 && int_of(data[p + 2]) == 73 && int_of(data[p + 3]) == 115 && int_of(data[p + 4]) == 100 && int_of(data[p + 5]) == 112 {
+        legacy = 1;
+    } else if nlen != 4 || int_of(data[p]) != 77 || int_of(data[p + 1]) != 81 || int_of(data[p + 2]) != 84 || int_of(data[p + 3]) != 84 {
         return e_name();
     }
     p = p + nlen;
@@ -328,6 +338,7 @@ pub fn decode_connect[&d, &t](data: &d [byte], t: &!t [int]) -> [] int {
         t[i] = 0;
         i = i + 1;
     }
+    t[13] = legacy;
     // [MQTT-3.1.2-3] the reserved bit is zero.
     if fl & 1 != 0 {
         return e_reserved();

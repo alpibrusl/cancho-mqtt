@@ -108,13 +108,16 @@ class Run:
                     self.live.pop(name)
                     self.history[name].append(("closed",))
 
-    def connect(self, name, clean, will=None):
+    def connect(self, name, clean, will=None, legacy=False):
         if name in self.live:
             old = self.live.pop(name)
             # a takeover: the old connection is closed by the broker
             self.takeover = old
         c = Client(self.port)
-        c.send(connect_packet(name, clean=clean, keepalive=0, will=will))
+        if legacy:
+            c.send(connect_packet(name, clean=clean, keepalive=0, will=will, name=b"MQIsdp", level=3))
+        else:
+            c.send(connect_packet(name, clean=clean, keepalive=0, will=will))
         k, _, body = c.recv(3.0)
         assert k == 2
         self.history[name].append(("connack", body[0] & 1, body[1]))
@@ -192,6 +195,8 @@ def apply(run, op):
     kind = op[0]
     if kind == "connect":
         run.connect(op[1], op[2], op[3] if len(op) > 3 else None)
+    elif kind == "connect31":
+        run.connect(op[1], op[2], op[3] if len(op) > 3 else None, legacy=True)
     elif kind == "subscribe":
         run.subscribe(op[1], op[2])
     elif kind == "unsubscribe":
@@ -223,7 +228,7 @@ def generate(seed, length=30):
             will = None
             if rng.random() < 0.3:
                 will = (rng.choice(TOPICS), b"will-" + name.encode(), rng.randrange(2), rng.random() < 0.3)
-            ops.append(("connect", name, rng.random() < 0.5, will))
+            ops.append((rng.choice(["connect", "connect", "connect31"]), name, rng.random() < 0.5, will))
             live.add(name)
         elif r < 0.30:
             ops.append(("subscribe", name, [(rng.choice(FILTERS), sub_qos[name]) for _ in range(rng.randrange(1, 3))]))
@@ -296,6 +301,16 @@ SCRIPTS = {
         ("begin2", "A", "t", b"once", False), ("begin2", "A", "t", b"once", True), ("release2", "A"),
         ("begin2", "A", "t", b"twice", False), ("release2", "A"),
     ],
+    "mqtt 3.1 clients": [
+        ("connect31", "A", True), ("connect", "B", True), ("subscribe", "A", [("l/#", 1)]), ("subscribe", "B", [("l/#", 1)]),
+        ("publish", "B", "l/x", b"to-old", 1, False), ("publish", "A", "l/y", b"from-old", 1, False),
+        ("publish", "A", "l/r", b"kept", 1, True), ("connect31", "C", True), ("subscribe", "C", [("l/r", 1)]),
+    ],
+    "mqtt 3.1 persistent session": [
+        ("connect31", "A", False), ("subscribe", "A", [("p/#", 1)]), ("disconnect", "A", True),
+        ("connect", "B", True), ("publish", "B", "p/x", b"queued", 1, False),
+        ("connect31", "A", False), ("disconnect", "A", False), ("connect31", "A", True),
+    ],
     "takeover": [
         ("connect", "A", True, ("w", b"never", 0, False)), ("subscribe", "A", [("t", 0)]),
         ("connect", "B", True), ("subscribe", "B", [("w", 0)]),
@@ -344,6 +359,37 @@ class Differential(unittest.TestCase):
     def agree(self, ops, label):
         mine, theirs = self.both(ops)
         self.assertEqual(mine, theirs, "the brokers disagree on %s:\n%s" % (label, "\n".join(map(str, ops))))
+
+    def test_connect_outcomes_agree_for_every_name_level_and_identifier(self):
+        # The CONNACK code (or a close) for each pairing of protocol name, level and identifier,
+        # including MQTT 3.1 (`MQIsdp`, level 3), which 3.1.1 broker code could easily get wrong.
+        from harness import pkt, s16
+        cases = [(b"MQIsdp", 3, b"abc", True), (b"MQIsdp", 3, b"", True), (b"MQIsdp", 3, b"", False),
+                 (b"MQIsdp", 3, b"a" * 100, True), (b"MQIsdp", 4, b"x", True), (b"MQIsdp", 5, b"x", True),
+                 (b"MQTT", 3, b"x", True), (b"MQTT", 4, b"", True), (b"MQTT", 4, b"", False),
+                 (b"MQIsd", 3, b"x", True), (b"MQTT", 4, b"x" * 100, False)]
+
+        def outcome(port, name, level, cid, clean):
+            c = Client(port)
+            try:
+                c.send(pkt(0x10, s16(name) + bytes([level]) + bytes([2 if clean else 0]) + (60).to_bytes(2, "big") + s16(cid)))
+                try:
+                    k, f, b = c.recv(3.0)
+                    return ("connack", b[1])
+                except Closed:
+                    return "closed"
+            finally:
+                c.close()
+
+        mine = Broker()
+        theirs = MosquittoBroker()
+        try:
+            for case in cases:
+                with self.subTest(case=case):
+                    self.assertEqual(outcome(mine.port, *case), outcome(theirs.port, *case))
+        finally:
+            mine.__exit__(None, None, None)
+            theirs.stop()
 
     def test_scripted_scenarios(self):
         for name, ops in SCRIPTS.items():

@@ -248,7 +248,7 @@ started by a supervisor after a crash, accepting the loss persistence would remo
 This is my recommendation, and the maintainer's to change. It was revised after QoS 2 was built and after lex-sys's TLS server
 design appeared.
 
-1. **`$SYS`** and **MQTT 3.1 (level 3, `MQIsdp`)**: small, no authority change. (**QoS 2: done.**)
+1. **`$SYS`**: small, no authority change. (**QoS 2 and MQTT 3.1 (level 3, `MQIsdp`): done.**)
 2. **Authentication**, designed to take a client-certificate identity as well as a password file, so TLS client certificates can
    follow without a second mechanism. The first feature that needs a file label, so it exercises the "ceiling grows by one exact
    row" path with its mutant on something small.

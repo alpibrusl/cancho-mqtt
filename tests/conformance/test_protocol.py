@@ -83,6 +83,67 @@ class Protocol(unittest.TestCase):
         self.assertEqual(c.recv_publish()[:2], ("a/b", b"1"))
         c.expect(13)
 
+    # ---- MQTT 3.1 (protocol name MQIsdp, level 3) ------------------------
+
+    def legacy(self, client_id="old", clean=True, name=b"MQIsdp", level=3):
+        c = self.client()
+        c.send(connect_packet(client_id, clean=clean, name=name, level=level))
+        return c
+
+    def test_mqtt_31_client_connects_publishes_and_subscribes(self):
+        # 3.1 differs from 3.1.1 in the CONNECT only (name and level, an identifier is required).
+        c = self.legacy("old")
+        _, body = c.expect(2)
+        self.assertEqual(body[1], 0)
+        c.send(subscribe_packet([("t/#", 1)]))
+        c.expect(9)
+        new = self.connected("new")
+        new.publish("t/x", b"hello", qos=1)
+        self.assertEqual(c.recv_publish()[:2], ("t/x", b"hello"))
+        c.send(publish_packet("u/y", b"back", qos=1, pid=3))
+        c.expect(4)
+
+    def test_mqtt_31_with_an_empty_client_id_is_refused_with_0x02(self):
+        # 3.1 requires an identifier of at least one character; 3.1.1 allows an empty one
+        # with a clean session. Mosquitto answers 0x02 either way.
+        for clean in (True, False):
+            c = self.legacy("", clean=clean)
+            _, body = c.expect(2)
+            self.assertEqual(body[1], 2)
+            self.assertTrue(c.closed())
+
+    def test_mqtt_31_connack_never_sets_session_present(self):
+        # 3.1 has no session-present flag; the session is resumed (the queued message arrives)
+        # but the flag byte stays 0, as Mosquitto sends it.
+        old = self.legacy("keeper", clean=False)
+        old.expect(2)
+        old.send(subscribe_packet([("q", 1)]))
+        old.expect(9)
+        old.close()
+        time.sleep(0.2)
+        self.connected("pub").publish("q", b"while-away", qos=1)
+        again = self.legacy("keeper", clean=False)
+        _, body = again.expect(2)
+        self.assertEqual(body[0], 0)
+        self.assertEqual(again.recv_publish()[:2], ("q", b"while-away"))
+
+    def test_mqtt_31_accepts_a_long_client_id(self):
+        # 3.1 says 1 to 23 characters and lets a server allow more; so does Mosquitto.
+        c = self.legacy("x" * 100)
+        _, body = c.expect(2)
+        self.assertEqual(body[1], 0)
+
+    def test_a_name_and_level_that_do_not_go_together_are_refused_with_0x01(self):
+        for name, level in ((b"MQIsdp", 4), (b"MQIsdp", 5), (b"MQTT", 3), (b"MQTT", 5)):
+            c = self.legacy("x", name=name, level=level)
+            _, body = c.expect(2)
+            self.assertEqual((name, level, body[1]), (name, level, 1))
+            self.assertTrue(c.closed())
+
+    def test_a_protocol_name_that_is_neither_is_closed(self):
+        c = self.legacy("x", name=b"MQIsd", level=3)
+        self.assertTrue(c.closed())
+
     # ---- keepalive -------------------------------------------------------
 
     def test_pingreq_is_answered(self):

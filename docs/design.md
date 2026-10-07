@@ -9,7 +9,7 @@ report that can be checked. The model is `lexsys-cache`; the pattern, not the co
 
 ## 1. Scope
 
-**In (v1).** MQTT 3.1.1 over plain TCP.
+**In (v1).** MQTT 3.1.1 over plain TCP, and MQTT 3.1 clients (`MQIsdp`, level 3; a CONNECT difference only, see §5).
 
 | Packet | Direction | Codec |
 |---|---|---|
@@ -150,9 +150,9 @@ unless stated. Spec references are to MQTT 3.1.1 (OASIS, 2014).
 | `protocol.connect-first` | first packet is not CONNECT | close | 3.1.0-1 |
 | `protocol.connect-twice` | second CONNECT | close | 3.1.0-2 |
 | `timeout.connect` | no CONNECT within the deadline | close | |
-| `protocol.bad-name` | name is not `MQTT` | close | 3.1.2-1 |
-| `protocol.unsupported-level` | level is not 4 | CONNACK 0x01, close | 3.1.2-2 |
-| `protocol.client-id-rejected` | empty id with clean-session 0; id over the bound; invalid UTF-8 | CONNACK 0x02, close | 3.1.3-8, 3.1.3-9 |
+| `protocol.bad-name` | name is neither `MQTT` nor `MQIsdp` | close | 3.1.2-1 |
+| `protocol.unsupported-level` | name `MQTT` with a level other than 4, or `MQIsdp` with a level other than 3 | CONNACK 0x01, close | 3.1.2-2 |
+| `protocol.client-id-rejected` | empty id with clean-session 0, or **any empty id from an `MQIsdp` client**; id over the bound; invalid UTF-8 | CONNACK 0x02, close | 3.1.3-8, 3.1.3-9 |
 | `protocol.reserved-flags` | reserved bits set wrongly in any fixed header or CONNECT flags | close | 2.2.2-2, 3.1.2-3 |
 | `protocol.remaining-length` | varint over 4 bytes, or not minimal where the spec requires | close | 2.2.3 |
 | `limit.packet-size` | declared length over the bound; the broker closes *before* buffering | close | |
@@ -173,6 +173,11 @@ unless stated. Spec references are to MQTT 3.1.1 (OASIS, 2014).
 | `limit.will-size` | a will larger than `will-bytes` | CONNACK 0x03, close | |
 | `limit.output-full` | no room in a session's queue even for a control packet | close | |
 | `limit.qos2-inbound` | a new QoS 2 PUBLISH while the session already holds `qos2-inbound` messages not yet released by PUBREL | close; will is published | |
+
+**MQTT 3.1 (added after v1).** Name `MQIsdp` with level 3 is served as 3.1.1 is, with three differences, each compared with Mosquitto 2.0.18 by
+`test_differential.py`: an empty identifier is refused (0x02) with either clean-session value; CONNACK never sets session-present (3.1 has no
+such flag; the session is still resumed); and there is no 23-character identifier limit (3.1 lets a server allow longer; `client-id-max`
+applies). A name and level that do not go together (`MQIsdp` 4, `MQTT` 3) are CONNACK 0x01. Nothing else in the protocol differs.
 
 SUBSCRIBE at QoS 2 is **granted QoS 2** (§7a). A PUBREC, PUBREL or PUBCOMP for a packet identifier the broker does not know is not a refusal (§7a says what is answered).
 

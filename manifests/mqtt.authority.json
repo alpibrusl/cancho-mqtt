@@ -87,6 +87,7 @@
     "bad_name",
     "be16",
     "bytes",
+    "c_legacy",
     "c_stride",
     "catalogue",
     "ceiling_of",
@@ -343,5 +344,5 @@
   ],
   "folded_operators": 129,
   "folded_calls": 0,
-  "functions": 452
+  "functions": 453
 }
