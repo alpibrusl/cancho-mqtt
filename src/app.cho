@@ -1,6 +1,8 @@
 edition 6;
 
-// `mqtt` -- an MQTT 3.1.1 broker, agent-first (docs/design.md section 5a).
+// `mqtt.app` -- what both binaries share: the command line, the errors, the credential table and the serving loop. Each
+// binary's own `main` (plain/main.cho, tls/main.cho) splits the world, owns the capabilities its transport needs and calls
+// `app.serve`. `mqtt` -- an MQTT 3.1.1 broker, agent-first (docs/design.md section 5a).
 //
 //     mqtt serve [--port N] [--max-connections N] ...   run the broker
 //     mqtt introspect [--output json]                   what this binary is and can do
@@ -12,6 +14,8 @@ edition 6;
 // with a stable rule tag and an exit status from the toolbox's table; the log is an
 // NDJSON stream on standard output that ends with an `end` record when the broker
 // is stopped with SIGINT or SIGTERM.
+
+module mqtt.app;
 
 import std.buffer;
 import std.bytes;
@@ -34,7 +38,7 @@ fn version() -> [] &static [byte] {
 }
 
 // Rules of this tool's own, beside the shared catalogue: `tag|exit|repairable|summary`.
-fn own_rules() -> [] &static [byte] {
+pub fn own_rules() -> [] &static [byte] {
     return "args.out-of-range|2|sometimes|a bound is below its smallest value or above its ceiling;args.unknown-command|2|never|the first operand is not serve;conflict.address-in-use|5|never|the port is already bound by another program;io.bind-failed|1|never|the operating system refused to listen on the port for a reason that is not permission or a port in use;io.poller-failed|1|never|the operating system could not create the poller or the signal watch;auth.credentials-invalid|2|never|the credential table read from standard input breaks a rule of its format";
 }
 
@@ -48,7 +52,7 @@ fn embedded() -> [] describe.Built {
 
 // ---- errors --------------------------------------------------------------
 
-fn problem[&h](heap: &!h Heap, e: fail.Errors, rule: &static [byte], message: &static [byte], hint: &static [byte], key: &static [byte], value: &static [byte]) -> [heap] fail.Errors {
+pub fn problem[&h](heap: &!h Heap, e: fail.Errors, rule: &static [byte], message: &static [byte], hint: &static [byte], key: &static [byte], value: &static [byte]) -> [heap] fail.Errors {
     var w = fail.open_in(heap, own_rules(), rule, message, hint);
     w = fail.no_repair(heap, w);
     w = fail.detail_open(heap, w);
@@ -94,7 +98,7 @@ fn out_of_range[&h, &g, &p](heap: &!h Heap, e: fail.Errors, args: &g Args, parse
 
 // The errors as records, then an `end` record that says the stream did not complete.
 // Answers the exit status.
-fn refuse[&h, &i](heap: &!h Heap, io: &!i Io, errs: fail.Errors, text_mode: bool) -> [heap, io_write, err_write] int {
+pub fn refuse[&h, &i](heap: &!h Heap, io: &!i Io, errs: fail.Errors, text_mode: bool) -> [heap, io_write, err_write] int {
     var status = 1;
     var broken = false;
     borrow errs as &er in {
@@ -150,7 +154,7 @@ fn list_rules[&h, &i](heap: &!h Heap, io: &!i Io, text_mode: bool) -> [heap, io_
 
 // Read the command line into `cfg`. Answers -1 to go on and serve, or the exit
 // status of what was answered instead (introspect, skill, rules, or refusals).
-fn configure[&h, &g, &i, &c](heap: &!h Heap, args: &g Args, io: &!i Io, cfg: &!c [int]) -> [heap, args, io_write, err_write] int {
+pub fn configure[&h, &g, &i, &c](heap: &!h Heap, args: &g Args, io: &!i Io, cfg: &!c [int]) -> [heap, args, io_write, err_write] int {
     let which = cli.subcommand(args);
     if which != 0 {
         return describe.answer(heap, io, which, tool(), embedded());
@@ -224,7 +228,7 @@ fn configure[&h, &g, &i, &c](heap: &!h Heap, args: &g Args, io: &!i Io, cfg: &!c
 
 // Run the broker on `listener` until a stop signal arrives or the log cannot be
 // written. Answers the exit status.
-fn serve[&h, &g, &k, &l, &w, &i](heap: &!h Heap, cfg: &g [int], abuf: Box[[byte]], ameta: Box[[int]], ausers: int, adummy: int, clock: &k Clock, listener: &!l Listener, watch: &!w SignalWatch, io: &!i Io) -> [heap, conn_accept, conn_read, conn_write, poll, clock, signals_read, io_write, err_write] int {
+pub fn serve[&h, &g, &k, &l, &w, &i](heap: &!h Heap, cfg: &g [int], abuf: Box[[byte]], ameta: Box[[int]], ausers: int, adummy: int, clock: &k Clock, listener: &!l Listener, watch: &!w SignalWatch, io: &!i Io) -> [heap, conn_accept, conn_read, conn_write, poll, clock, signals_read, io_write, err_write] int {
     match poller_new() {
         Polling::Ok(p) => {
             let t0 = clock_ms(clock);
@@ -309,7 +313,7 @@ fn serve[&h, &g, &k, &l, &w, &i](heap: &!h Heap, cfg: &g [int], abuf: Box[[byte]
 // Read the table from standard input (to its end, at most `auth.max_input` bytes) and parse it into `abuf` and `ameta`
 // (design section 7c). Answers the number of users, or -1 after the refusal has been written, with the exit status in
 // `info[3]` and the highest iteration count in `info[2]`.
-fn load_credentials[&h, &i, &g, &b, &m, &o](heap: &!h Heap, io: &!i Io, cfg: &g [int], abuf: &!b [byte], ameta: &!m [int], info: &!o [int]) -> [heap, io_read, io_write, err_write] int {
+pub fn load_credentials[&h, &i, &g, &b, &m, &o](heap: &!h Heap, io: &!i Io, cfg: &g [int], abuf: &!b [byte], ameta: &!m [int], info: &!o [int]) -> [heap, io_read, io_write, err_write] int {
     let room = cfg[config.i_auth_users()];
     let cap = auth.max_input(room);
     var text = buffer.empty(heap, 4096);
@@ -350,7 +354,7 @@ fn load_credentials[&h, &i, &g, &b, &m, &o](heap: &!h Heap, io: &!i Io, cfg: &g 
 
 // `tcp_listen` failed with `errno`: the port is in use (EADDRINUSE: 98 on Linux, 48
 // on macOS), not allowed to this user (EACCES), or something else.
-fn listen_failed[&h, &i](heap: &!h Heap, io: &!i Io, port: int, errno: int, text_mode: bool) -> [heap, io_write, err_write] int {
+pub fn listen_failed[&h, &i](heap: &!h Heap, io: &!i Io, port: int, errno: int, text_mode: bool) -> [heap, io_write, err_write] int {
     var rule: &static [byte] = "io.bind-failed";
     var message: &static [byte] = "the operating system refused to listen on the port";
     var hint: &static [byte] = "";
@@ -371,105 +375,4 @@ fn listen_failed[&h, &i](heap: &!h Heap, io: &!i Io, port: int, errno: int, text
     w = json.put_key(heap, w, "errno");
     w = json.put_int(heap, w, errno);
     return refuse(heap, io, fail.add(heap, fail.empty_in(heap, own_rules()), w), text_mode);
-}
-
-fn main(world: World) -> [] int {
-    let Split { io, ffi, fs, heap, args, net, clock, signals } = split(world);
-    // A broker: no files, no foreign code. Standard input is read once, at start, and only with `--auth stdin`.
-    release(ffi);
-    release(fs);
-    let claim = narrow(signals, "INT,TERM");
-    var status = 1;
-    borrow mut heap as &!h in {
-        borrow args as &g in {
-            borrow mut io as &!i in {
-                let cfg = box_slice(h, config.flags(), 0);
-                var go = 0 - 1;
-                borrow mut cfg as &!cb in {
-                    go = configure(h, g, i, contents(cb));
-                }
-                if go >= 0 {
-                    status = go;
-                } else {
-                    borrow cfg as &cr in {
-                        var rows = 1;
-                        if contents(cr)[config.i_auth()] == 1 {
-                            rows = contents(cr)[config.i_auth_users()];
-                        }
-                        var abuf = box_slice(h, rows * auth.stride(), byte_of(0));
-                        var ameta = box_slice(h, rows * auth.meta_stride(), 0);
-                        var info = box_slice(h, 4, 0);
-                        var users = 0;
-                        if contents(cr)[config.i_auth()] == 1 {
-                            borrow mut abuf as &!ab in {
-                                borrow mut ameta as &!am in {
-                                    borrow mut info as &!inf in {
-                                        users = load_credentials(h, i, contents(cr), contents(ab), contents(am), contents(inf));
-                                    }
-                                }
-                            }
-                        }
-                        var dummy = 1;
-                        var refused = 0;
-                        borrow info as &ir in {
-                            dummy = contents(ir)[2];
-                            refused = contents(ir)[3];
-                        }
-                        unbox_slice(h, info);
-                        if users < 0 {
-                            status = refused;
-                            unbox_slice(h, abuf);
-                            unbox_slice(h, ameta);
-                        } else {
-                            let port = contents(cr)[config.i_port()];
-                            borrow net as &nn in {
-                                match tcp_listen(nn, port, 1024, 0) {
-                                    Listening::Ok(l) => {
-                                        var listener = l;
-                                        borrow mut listener as &!lh in {
-                                            listener_nonblocking(lh);
-                                            borrow claim as &sc in {
-                                                match signals_watch(sc) {
-                                                    Watching::Ok(wt) => {
-                                                        var watch = wt;
-                                                        borrow mut watch as &!wh in {
-                                                            borrow clock as &c in {
-                                                                status = serve(h, contents(cr), abuf, ameta, users, dummy, c, lh, wh, i);
-                                                            }
-                                                        }
-                                                        signals_close(watch);
-                                                    }
-                                                    Watching::Failed(e) => {
-                                                        unbox_slice(h, abuf);
-                                                        unbox_slice(h, ameta);
-                                                        var errs = fail.empty_in(h, own_rules());
-                                                        errs = problem(h, errs, "io.poller-failed", "the operating system could not watch for stop signals", "", "errno", "signals");
-                                                        status = refuse(h, i, errs, contents(cr)[config.i_format()] == 1);
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        listener_close(listener);
-                                    }
-                                    Listening::Failed(e) => {
-                                        unbox_slice(h, abuf);
-                                        unbox_slice(h, ameta);
-                                        status = listen_failed(h, i, port, e, contents(cr)[config.i_format()] == 1);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                unbox_slice(h, cfg);
-            }
-        }
-    }
-    release(claim);
-    release(net);
-    release(clock);
-    release(args);
-    release(io);
-    release(heap);
-    return status;
 }

@@ -1,0 +1,117 @@
+edition 6;
+
+// `mqtt` -- the plain binary: no file label, no TLS (docs/design.md sections 2 and 7d). The command line, errors, credential
+// table and serving loop are `mqtt.app`'s, shared with `mqtt-tls`; this file splits the world and gives the broker its
+// listener.
+//
+//     mqtt serve [--port N] [--max-connections N] ...   run the broker
+//     mqtt introspect [--output json]                   what this binary is and can do
+//     mqtt skill                                        the same, as an agentskills.io SKILL.md
+//     mqtt rules                                        the connection-level rules, as NDJSON
+
+import std.signals as sg;
+import toolbox.fail;
+import mqtt.app;
+import mqtt.auth;
+import mqtt.config;
+
+fn main(world: World) -> [] int {
+    let Split { io, ffi, fs, heap, args, net, clock, signals } = split(world);
+    // A broker: no files, no foreign code. Standard input is read once, at start, and only with `--auth stdin`.
+    release(ffi);
+    release(fs);
+    let claim = narrow(signals, "INT,TERM");
+    var status = 1;
+    borrow mut heap as &!h in {
+        borrow args as &g in {
+            borrow mut io as &!i in {
+                let cfg = box_slice(h, config.flags(), 0);
+                var go = 0 - 1;
+                borrow mut cfg as &!cb in {
+                    go = app.configure(h, g, i, contents(cb));
+                }
+                if go >= 0 {
+                    status = go;
+                } else {
+                    borrow cfg as &cr in {
+                        var rows = 1;
+                        if contents(cr)[config.i_auth()] == 1 {
+                            rows = contents(cr)[config.i_auth_users()];
+                        }
+                        var abuf = box_slice(h, rows * auth.stride(), byte_of(0));
+                        var ameta = box_slice(h, rows * auth.meta_stride(), 0);
+                        var info = box_slice(h, 4, 0);
+                        var users = 0;
+                        if contents(cr)[config.i_auth()] == 1 {
+                            borrow mut abuf as &!ab in {
+                                borrow mut ameta as &!am in {
+                                    borrow mut info as &!inf in {
+                                        users = app.load_credentials(h, i, contents(cr), contents(ab), contents(am), contents(inf));
+                                    }
+                                }
+                            }
+                        }
+                        var dummy = 1;
+                        var refused = 0;
+                        borrow info as &ir in {
+                            dummy = contents(ir)[2];
+                            refused = contents(ir)[3];
+                        }
+                        unbox_slice(h, info);
+                        if users < 0 {
+                            status = refused;
+                            unbox_slice(h, abuf);
+                            unbox_slice(h, ameta);
+                        } else {
+                            let port = contents(cr)[config.i_port()];
+                            borrow net as &nn in {
+                                match tcp_listen(nn, port, 1024, 0) {
+                                    Listening::Ok(l) => {
+                                        var listener = l;
+                                        borrow mut listener as &!lh in {
+                                            listener_nonblocking(lh);
+                                            borrow claim as &sc in {
+                                                match signals_watch(sc) {
+                                                    Watching::Ok(wt) => {
+                                                        var watch = wt;
+                                                        borrow mut watch as &!wh in {
+                                                            borrow clock as &c in {
+                                                                status = app.serve(h, contents(cr), abuf, ameta, users, dummy, c, lh, wh, i);
+                                                            }
+                                                        }
+                                                        signals_close(watch);
+                                                    }
+                                                    Watching::Failed(e) => {
+                                                        unbox_slice(h, abuf);
+                                                        unbox_slice(h, ameta);
+                                                        var errs = fail.empty_in(h, app.own_rules());
+                                                        errs = app.problem(h, errs, "io.poller-failed", "the operating system could not watch for stop signals", "", "errno", "signals");
+                                                        status = app.refuse(h, i, errs, contents(cr)[config.i_format()] == 1);
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        listener_close(listener);
+                                    }
+                                    Listening::Failed(e) => {
+                                        unbox_slice(h, abuf);
+                                        unbox_slice(h, ameta);
+                                        status = app.listen_failed(h, i, port, e, contents(cr)[config.i_format()] == 1);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                unbox_slice(h, cfg);
+            }
+        }
+    }
+    release(claim);
+    release(net);
+    release(clock);
+    release(args);
+    release(io);
+    release(heap);
+    return status;
+}
