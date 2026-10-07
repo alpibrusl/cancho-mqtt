@@ -192,3 +192,30 @@ write per connection. After it the cell no longer flips, and the broker uses 60%
 bounded by the generator. The earlier "650k" fast mode was also generator-limited, so it was never the broker's limit.
 **Not explained:** the QoS 1 two-core spread (114k to 160k) and the roughly 10% lower result in one placement variant after
 coalescing.
+
+## A and B: comparing two builds of this broker
+
+*Added with the transport module (`docs/design.md` section 7d, step 2). The tables above are `bench/run.py` against other brokers in
+Docker; there is no Docker daemon in the session that did this work, so that script was not run, and **nothing here is comparable with
+those tables**. This is a tool for one question: did a change to this broker slow its data path?*
+
+`bench/ab_fanout.c` (`gcc -O2 -o ab_fanout bench/ab_fanout.c`) is a saturated QoS 0 fan-out: 4 publishers writing 27-byte PUBLISH
+packets (a 7-byte topic, a 16-byte payload) as fast as the broker takes them, 100 subscribers on `bench/#`, one thread and one
+epoll, 1 s of warm-up and 5 s counted. A delivery is the bytes a subscriber read divided by 27. The broker is pinned to CPU 0 with
+`taskset`, the generator to CPUs 2 and 3 of a 4-vCPU x86-64 VM; the broker's CPU is read from `/proc` and was 100 percent in every
+run (600 ticks in 6 s), so the broker, not the generator, is the limit here, unlike the `emqtt-bench` cells above. A build before and
+a build after run in turn, each on a fresh broker, two seconds apart.
+
+**The transport refactor** (every read, write, close and watch of a connection now goes through `mqtt.transport`, a pass-through to
+`std.conns`): 14 pairs, the order alternating so that neither build always runs first.
+
+| | Deliveries a second, median (range) |
+|---|---|
+| before | 1,743,535 (1,665,199 to 1,862,239) |
+| after | 1,732,948 (1,682,410 to 1,774,852) |
+
+Paired, the after build was **0.8 percent slower on average, with a standard error of 1.1 percent**; it was slower in 7 of 14 pairs, the
+pairs ranged from 8.3 percent slower to 5.7 percent faster, and the spread of one pair is about 4 percent. **So no difference is
+detectable at a resolution of about 2 to 3 percent; a real one of 1 percent would not have been seen.** An earlier run of 7 pairs, with
+the before build always first, gave 1.4 percent slower by medians and the same spread; the order was the likely cause and it is
+replaced by the alternating run, not hidden.
