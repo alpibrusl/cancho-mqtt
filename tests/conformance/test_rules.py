@@ -167,23 +167,26 @@ class Rules(unittest.TestCase):
         self.assertTrue(c.closed())
         self.logged("protocol.packet-id")
 
-    @fixture("unsupported.qos2-publish")
-    def test_qos2_publish(self):
-        self.start()
+    @fixture("limit.qos2-inbound")
+    def test_qos2_inbound(self):
+        # Two QoS 2 messages are held for their PUBREL; a third, with another identifier, is
+        # refused and not routed (design section 7a).
+        self.start("--qos2-inbound", "2")
+        sub = self.client()
+        sub.connect("s")
+        sub.subscribe([("t", 2)])
         c = self.client()
         c.connect("a")
-        c.send(publish_packet("t", b"x", qos=2, pid=1))
+        for pid in (1, 2):
+            c.send(publish_packet("t", b"m%d" % pid, qos=2, pid=pid))
+            c.expect(5)
+        c.send(publish_packet("t", b"m3", qos=2, pid=3))
         self.assertTrue(c.closed())
-        self.logged("unsupported.qos2-publish")
-
-    @fixture("unsupported.qos2-packet")
-    def test_qos2_packet(self):
-        self.start()
-        c = self.client()
-        c.connect("a")
-        c.send(pkt(0x50, b"\x00\x01"))
-        self.assertTrue(c.closed())
-        self.logged("unsupported.qos2-packet")
+        got = [sub.recv_publish()[1] for _ in range(2)]
+        self.assertEqual(got, [b"m1", b"m2"])
+        with self.assertRaises(TimeoutError):
+            sub.recv_publish(timeout=0.5)
+        self.logged("limit.qos2-inbound")
 
     @fixture("protocol.qos3")
     def test_qos3(self):
@@ -378,7 +381,7 @@ class Rules(unittest.TestCase):
         status, out, err = run("rules")
         self.assertEqual(status, 0)
         tags = [r["tag"] for r in records(out) if r["type"] == "rule"]
-        self.assertEqual(len(tags), 28)
+        self.assertEqual(len(tags), 27)
         self.assertEqual(sorted(tags), sorted(FIXTURES), "rules without a fixture, or fixtures without a rule")
         for name in FIXTURES.values():
             self.assertTrue(hasattr(Rules, name))

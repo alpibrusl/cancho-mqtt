@@ -21,9 +21,54 @@ def rss_kib(pid):
         return int(re.search(r"VmRSS:\s+(\d+) kB", f.read()).group(1))
 
 
+def thp():
+    try:
+        with open("/sys/kernel/mm/transparent_hugepage/enabled") as f:
+            return f.read().strip()
+    except OSError:
+        return "unknown"
+
+
+def largest_mappings(pid, n=4):
+    """The n mappings with the most resident memory, for the failure message."""
+    rows, cur = [], None
+    with open("/proc/%d/smaps" % pid) as f:
+        for line in f:
+            m = re.match(r"^([0-9a-f]+)-([0-9a-f]+) \S+ \S+ \S+ \S+\s*(.*)$", line)
+            if m:
+                cur = [0, 0, int(m.group(2), 16) - int(m.group(1), 16), m.group(3) or "anon"]
+                rows.append(cur)
+            elif cur is not None and line.startswith("Rss:"):
+                cur[0] = int(line.split()[1])
+            elif cur is not None and line.startswith("AnonHugePages:"):
+                cur[1] = int(line.split()[1])
+    rows.sort(key=lambda r: -r[0])
+    return ["rss %d KiB (huge %d KiB) of %d KiB: %s" % (r[0], r[1], r[2] // 1024, r[3]) for r in rows[:n]]
+
+
+def burst(port, n=400):
+    """Open `n` connections at once, subscribe, publish to all of them, close: the peak
+    that later sequential churn cannot exceed, so the warm-up reaches the high-water mark
+    of every pool (buffers are attached while in use, so memory follows the peak)."""
+    clients = []
+    try:
+        for i in range(n):
+            c = Client(port, timeout=10)
+            c.connect("burst%d" % i, clean=bool(i % 2))
+            c.subscribe([("burst/#", 1 + i % 2)])
+            clients.append(c)
+        for i in range(20):
+            clients[0].publish("burst/x", b"b" * 200, qos=1)
+        time.sleep(0.5)
+    finally:
+        for c in clients:
+            c.close()
+    time.sleep(0.5)
+
+
 def churn(port, rng, rounds):
     for i in range(rounds):
-        kind = rng.randrange(7)
+        kind = rng.randrange(9)
         c = Client(port)
         try:
             name = "c%d" % rng.randrange(40)
@@ -45,9 +90,18 @@ def churn(port, rng, rounds):
                 c.publish("p/%d" % rng.randrange(10), b"q" * 50, qos=1)
             elif kind == 5:
                 c.send(connect_packet("big") + publish_packet("x/" + "y" * 300, b"z"))
-            else:
+            elif kind == 6:
                 c.connect(name, clean=True)
                 c.send(b"\xe0\x00")
+            elif kind == 7:
+                # QoS 2 both ways, left half done on purpose: the received set and the PUBREL
+                # entries of a persistent session are state that must not grow.
+                c.connect(name, clean=False)
+                c.subscribe([("p/%d" % rng.randrange(10), 2)])
+                c.send(publish_packet("p/%d" % rng.randrange(10), b"q" * 40, qos=2, pid=rng.randrange(1, 40)))
+            else:
+                c.connect(name, clean=True)
+                c.publish2("t/%d/x" % rng.randrange(20), b"r" * 30, pid=rng.randrange(1, 40))
         except Exception:
             pass
         finally:
@@ -57,7 +111,7 @@ def churn(port, rng, rounds):
 class Memory(unittest.TestCase):
     def test_resident_size_is_flat_under_churn(self):
         with Broker("--offline-sessions", "32", "--retained-messages", "64", "--subscriptions-total", "512",
-                    "--max-nodes", "512") as broker:
+                    "--max-nodes", "512", no_thp=True) as broker:
             rng = random.Random(7)
             churn(broker.port, rng, 2500)      # warm up: first use of each path, and the allocator's first growth
             time.sleep(0.5)
@@ -69,7 +123,8 @@ class Memory(unittest.TestCase):
                 samples.append(rss_kib(broker.proc.pid))
             self.assertTrue(broker.alive())
             self.assertLessEqual(max(samples) - before, MARGIN_KIB,
-                                 "resident size grew from %d KiB: %r" % (before, samples))
+                                 "resident size grew from %d KiB: %r (transparent huge pages: %s)\n%s"
+                                 % (before, samples, thp(), "\n".join(largest_mappings(broker.proc.pid))))
             # And it has stopped growing: the last windows are no larger than the first.
             self.assertLessEqual(max(samples[4:]) - max(samples[:4]), 256,
                                  "resident size is still growing: %r" % samples)
@@ -83,7 +138,7 @@ class Memory(unittest.TestCase):
         # A connection's input and queue buffers are attached only while something is in
         # them, so a connected, subscribed, idle client touches no page of its own. (They
         # were fixed per-connection slabs, 8.3 KiB each, until this was measured.)
-        with Broker("--max-connections", "4096", "--stats-seconds", "0") as broker:
+        with Broker("--max-connections", "4096", "--stats-seconds", "0", no_thp=True) as broker:
             clients = []
 
             def add(n):
@@ -129,7 +184,7 @@ class Memory(unittest.TestCase):
         # they are used, so an idle broker is small and a full one is not larger than the
         # `memory_bytes` the log states plus the program itself.
         with Broker("--max-connections", "256", "--queue-bytes", "17000", "--max-packet", "4096",
-                    "--offline-sessions", "16") as broker:
+                    "--offline-sessions", "16", no_thp=True) as broker:
             estimate = [r for r in broker.lines if r["type"] == "listening"][0]["memory_bytes"]
             idle = rss_kib(broker.proc.pid) * 1024
             self.assertLess(idle, estimate)

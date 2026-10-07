@@ -48,7 +48,8 @@ edition 5;
 //
 // A queue is a run of entries, each `[length:4][state:1][kind:1][pid:2][packet]`;
 // state is 0 not yet sent, 1 sent and awaiting acknowledgement, 2 finished; kind
-// is 0 a QoS 0 message, 1 a QoS 1 message, 2 a control packet.
+// is 0 a QoS 0 message, 1 a QoS 1 message, 2 a QoS 2 message, 3 a control packet,
+// 4 a PUBREL (design section 7a).
 
 module mqtt.tables;
 
@@ -148,6 +149,8 @@ pub res struct Core {
     stage: Box[[byte]],
     spill: Box[[int]],
     qfree: Box[[int]],
+    q2in: Box[[int]],
+    q2max: int,
     free_spill: int,
     free_q: int,
     limit: int,
@@ -241,11 +244,11 @@ pub fn open[&h, &g](heap: &!h Heap, poller: Poller, cfg: &g [int]) -> [heap] Cor
         qd[nsess - 1] = 0 - 1;
     }
     let trie = subs.open(heap, cfg[config.i_nodes()], cfg[config.i_subs_total()], nsess, cfg[config.i_levels()], cfg[config.i_subs_client()]);
-    return Core { poller: poller, events: box_slice(heap, 128, 0), cs: cs, inbuf: box_slice(heap, (limit + 1) * pmax, byte_of(0)), ss: ss, sid: box_slice(heap, nsess * idmax, byte_of(0)), qbuf: box_slice(heap, nsess * qbytes, byte_of(0)), wbuf: box_slice(heap, nsess * will_max, byte_of(0)), idb: box_slice(heap, 2 * nsess + 1, 0 - 1), rt: box_slice(heap, 4 * nret, 0), rtext: box_slice(heap, nret * rslot, byte_of(0)), trie: trie, ct: box_slice(heap, wire.connect_slots(), 0), pt: box_slice(heap, wire.publish_slots(), 0), ft: box_slice(heap, wire.filter_slots(), 0), codes: box_slice(heap, wire.max_filters(), 0), dirty: box_slice(heap, 2 * limit + 8, 0), ctr: box_slice(heap, counters(), 0), evq: box_slice(heap, 6 * event_capacity(), 0), evtext: box_slice(heap, event_text() * event_capacity(), byte_of(0)), foreign: box_slice(heap, 32, 0), stage: box_slice(heap, stage_bytes(), byte_of(0)), spill: spill, qfree: qfree, free_spill: 0, free_q: 0, limit: limit, pmax: pmax, qbytes: qbytes, qmsgs: cfg[config.i_queue_messages()], window: cfg[config.i_inflight()], nsess: nsess, noffline: noffline, idmax: idmax, topic_max: cfg[config.i_topic_max()], levels_max: cfg[config.i_levels()], nret: nret, rslot: rslot, will_max: will_max, connect_to: cfg[config.i_connect_timeout()], stall_to: cfg[config.i_write_stall()], free_sess: 0, online: 0, offline: 0, retained_used: 0, ndirty: 0, ev_head: 0, ev_count: 0, now: 0, now_ms: 0, last_sweep: 0, auto_id: 0, nforeign: 0, start_ms: 0 };
+    return Core { poller: poller, events: box_slice(heap, 128, 0), cs: cs, inbuf: box_slice(heap, (limit + 1) * pmax, byte_of(0)), ss: ss, sid: box_slice(heap, nsess * idmax, byte_of(0)), qbuf: box_slice(heap, nsess * qbytes, byte_of(0)), wbuf: box_slice(heap, nsess * will_max, byte_of(0)), idb: box_slice(heap, 2 * nsess + 1, 0 - 1), rt: box_slice(heap, 4 * nret, 0), rtext: box_slice(heap, nret * rslot, byte_of(0)), trie: trie, ct: box_slice(heap, wire.connect_slots(), 0), pt: box_slice(heap, wire.publish_slots(), 0), ft: box_slice(heap, wire.filter_slots(), 0), codes: box_slice(heap, wire.max_filters(), 0), dirty: box_slice(heap, 2 * limit + 8, 0), ctr: box_slice(heap, counters(), 0), evq: box_slice(heap, 6 * event_capacity(), 0), evtext: box_slice(heap, event_text() * event_capacity(), byte_of(0)), foreign: box_slice(heap, 32, 0), stage: box_slice(heap, stage_bytes(), byte_of(0)), spill: spill, qfree: qfree, q2in: box_slice(heap, nsess * cfg[config.i_qos2_inbound()], 0), q2max: cfg[config.i_qos2_inbound()], free_spill: 0, free_q: 0, limit: limit, pmax: pmax, qbytes: qbytes, qmsgs: cfg[config.i_queue_messages()], window: cfg[config.i_inflight()], nsess: nsess, noffline: noffline, idmax: idmax, topic_max: cfg[config.i_topic_max()], levels_max: cfg[config.i_levels()], nret: nret, rslot: rslot, will_max: will_max, connect_to: cfg[config.i_connect_timeout()], stall_to: cfg[config.i_write_stall()], free_sess: 0, online: 0, offline: 0, retained_used: 0, ndirty: 0, ev_head: 0, ev_count: 0, now: 0, now_ms: 0, last_sweep: 0, auto_id: 0, nforeign: 0, start_ms: 0 };
 }
 
 pub fn drop[&h](heap: &!h Heap, core: Core) -> [heap] int {
-    let Core { poller, events, cs, inbuf, ss, sid, qbuf, wbuf, idb, rt, rtext, trie, ct, pt, ft, codes, dirty, ctr, evq, evtext, foreign, stage, spill, qfree, free_spill, free_q, limit, pmax, qbytes, qmsgs, window, nsess, noffline, idmax, topic_max, levels_max, nret, rslot, will_max, connect_to, stall_to, free_sess, online, offline, retained_used, ndirty, ev_head, ev_count, now, now_ms, last_sweep, auto_id, nforeign, start_ms } = core;
+    let Core { poller, events, cs, inbuf, ss, sid, qbuf, wbuf, idb, rt, rtext, trie, ct, pt, ft, codes, dirty, ctr, evq, evtext, foreign, stage, spill, qfree, q2in, q2max, free_spill, free_q, limit, pmax, qbytes, qmsgs, window, nsess, noffline, idmax, topic_max, levels_max, nret, rslot, will_max, connect_to, stall_to, free_sess, online, offline, retained_used, ndirty, ev_head, ev_count, now, now_ms, last_sweep, auto_id, nforeign, start_ms } = core;
     poller_close(poller);
     unbox_slice(heap, events);
     unbox_slice(heap, cs);
@@ -270,6 +273,7 @@ pub fn drop[&h](heap: &!h Heap, core: Core) -> [heap] int {
     unbox_slice(heap, stage);
     unbox_slice(heap, spill);
     unbox_slice(heap, qfree);
+    unbox_slice(heap, q2in);
     return 0;
 }
 
@@ -432,6 +436,7 @@ pub fn new_session[&c, &i](core: &!c Core, id: &i [byte], clean: int, now: int) 
     sd[p + 18] = 0;
     bk[b] = s;
     copy_into(ids[s * core.idmax..(s + 1) * core.idmax], id);
+    q2_clear(core, s);
     return s;
 }
 
@@ -454,11 +459,67 @@ pub fn free_session[&c](core: &!c Core, s: int) -> [] int {
         }
     }
     q_give(core, s);
+    q2_clear(core, s);
     sd[p] = 0;
     sd[p + 1] = 0 - 1;
     sd[p + 3] = 0;
     sd[p + 19] = core.free_sess;
     core.free_sess = s;
+    return 0;
+}
+
+// ---- QoS 2 messages received and not yet released ------------------------
+
+// Session `s`'s set of packet identifiers of QoS 2 PUBLISHes it has accepted and
+// whose PUBREL has not arrived (design section 7a, method A): `q2max` slots, 0 is
+// an empty one.
+pub fn q2_has[&c](core: &c Core, s: int, pid: int) -> [] bool {
+    let t = contents(core.q2in);
+    var i = 0;
+    while i < core.q2max {
+        if t[s * core.q2max + i] == pid {
+            return true;
+        }
+        i = i + 1;
+    }
+    return false;
+}
+
+// Remember `pid` for session `s`. False when the set is full.
+pub fn q2_add[&c](core: &!c Core, s: int, pid: int) -> [] bool {
+    let t = contents(core.q2in);
+    var i = 0;
+    while i < core.q2max {
+        if t[s * core.q2max + i] == 0 {
+            t[s * core.q2max + i] = pid;
+            return true;
+        }
+        i = i + 1;
+    }
+    return false;
+}
+
+// Forget `pid` for session `s` (a PUBREL arrived). True if it was remembered.
+pub fn q2_del[&c](core: &!c Core, s: int, pid: int) -> [] bool {
+    let t = contents(core.q2in);
+    var i = 0;
+    while i < core.q2max {
+        if t[s * core.q2max + i] == pid {
+            t[s * core.q2max + i] = 0;
+            return true;
+        }
+        i = i + 1;
+    }
+    return false;
+}
+
+pub fn q2_clear[&c](core: &!c Core, s: int) -> [] int {
+    let t = contents(core.q2in);
+    var i = 0;
+    while i < core.q2max {
+        t[s * core.q2max + i] = 0;
+        i = i + 1;
+    }
     return 0;
 }
 
@@ -621,7 +682,7 @@ pub fn q_commit[&c](core: &!c Core, s: int, at: int, size: int, kind: int, pid: 
     q[at - 2] = byte_of(pid / 256);
     q[at - 1] = byte_of(pid % 256);
     sd[p + 7] = at + size;
-    if kind < 2 {
+    if kind < 3 {
         sd[p + 10] = sd[p + 10] + 1;
     }
     return 0;
@@ -634,7 +695,8 @@ fn pid_in_use[&c](core: &c Core, s: int, pid: int) -> [] bool {
     let q = queue_view(core, s);
     var at = sd[p + 6];
     while at < sd[p + 7] {
-        if int_of(q[at + 5]) == 1 && int_of(q[at + 4]) < 2 && int_of(q[at + 6]) * 256 + int_of(q[at + 7]) == pid {
+        let kind = int_of(q[at + 5]);
+        if (kind == 1 || kind == 2 || kind == 4) && int_of(q[at + 4]) < 2 && int_of(q[at + 6]) * 256 + int_of(q[at + 7]) == pid {
             return true;
         }
         at = at + 8 + get32(q, at);
@@ -678,6 +740,44 @@ pub fn q_ack[&c](core: &!c Core, s: int, pid: int) -> [] bool {
     return false;
 }
 
+// A PUBREC for `pid` arrived: the QoS 2 message sent under it is finished (its
+// identifier now belongs to the PUBREL the caller queues). True if one was
+// awaiting it.
+pub fn q_rec[&c](core: &!c Core, s: int, pid: int) -> [] bool {
+    let sd = contents(core.ss);
+    let p = s_stride() * s;
+    let q = queue(core, s);
+    var at = sd[p + 6];
+    while at < sd[p + 7] {
+        if int_of(q[at + 5]) == 2 && int_of(q[at + 4]) == 1 && int_of(q[at + 6]) * 256 + int_of(q[at + 7]) == pid {
+            q[at + 4] = byte_of(2);
+            sd[p + 11] = sd[p + 11] - 1;
+            sd[p + 10] = sd[p + 10] - 1;
+            return true;
+        }
+        at = at + 8 + get32(q, at);
+    }
+    return false;
+}
+
+// A PUBCOMP for `pid` arrived: finish the PUBREL sent for it. True if one was
+// awaiting it.
+pub fn q_comp[&c](core: &!c Core, s: int, pid: int) -> [] bool {
+    let sd = contents(core.ss);
+    let p = s_stride() * s;
+    let q = queue(core, s);
+    var at = sd[p + 6];
+    while at < sd[p + 7] {
+        if int_of(q[at + 5]) == 4 && int_of(q[at + 4]) == 1 && int_of(q[at + 6]) * 256 + int_of(q[at + 7]) == pid {
+            q[at + 4] = byte_of(2);
+            sd[p + 11] = sd[p + 11] - 1;
+            return true;
+        }
+        at = at + 8 + get32(q, at);
+    }
+    return false;
+}
+
 // Drop finished entries from the front of the queue; an empty queue starts over.
 pub fn q_trim[&c](core: &!c Core, s: int) -> [] int {
     let sd = contents(core.ss);
@@ -711,14 +811,17 @@ pub fn q_going_offline[&c](core: &!c Core, s: int) -> [] int {
         let size = get32(q, at);
         let kind = int_of(q[at + 5]);
         let state = int_of(q[at + 4]);
-        if kind != 1 {
+        if kind == 0 || kind == 3 {
             q[at + 4] = byte_of(2);
         } else if state == 1 {
-            // Sent: it will go again, marked as a duplicate.
+            // Sent: it will go again. A message is marked as a duplicate; a PUBREL has no
+            // such flag.
             q[at + 4] = byte_of(0);
-            q[at + 8] = byte_of(int_of(q[at + 8]) | 8);
+            if kind != 4 {
+                q[at + 8] = byte_of(int_of(q[at + 8]) | 8);
+            }
         }
-        if int_of(q[at + 4]) < 2 && kind < 2 {
+        if int_of(q[at + 4]) < 2 && (kind == 1 || kind == 2) {
             held = held + 1;
         }
         at = at + 8 + size;

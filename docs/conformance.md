@@ -31,6 +31,7 @@ may be wrong. A wrong number is corrected in the test that cites it, and this fi
 | [MQTT-3.3.1-10] | `test_protocol.py::test_empty_retained_payload_clears_it` |
 | [MQTT-3.3.2-2] | `test_protocol.py::test_publish_to_a_topic_with_a_wildcard_closes_the_connection` |
 | [MQTT-3.3.4-1] | `test_protocol.py::test_qos1_is_acknowledged_after_it_is_handed_on` |
+| [MQTT-3.6.1-1] | `test_qos2.py::test_pubrel_with_flags_other_than_0010_is_refused`, `test_qos2.py::test_retained_qos2_message_is_delivered_with_the_retain_flag` |
 | [MQTT-3.8.4-3] | `test_protocol.py::test_resubscribing_replaces_the_subscription` |
 | [MQTT-3.8.4-6] | `test_protocol.py::test_delivery_qos_is_the_lower_of_publish_and_grant` |
 | [MQTT-3.9.3-1] | `test_protocol.py::test_suback_has_a_code_per_filter_in_order` |
@@ -44,8 +45,10 @@ may be wrong. A wrong number is corrected in the test that cites it, and this fi
 
 ## What is not covered
 
-- **QoS 2** in every form: PUBREC, PUBREL, PUBCOMP and a PUBLISH at QoS 2 are refused (`unsupported.*`), and a
-  SUBSCRIBE at QoS 2 is granted QoS 1. Nothing in section 4.3.3 is claimed.
+- **QoS 2** (`test_qos2.py`) is tested against the behaviour in design section 7a and against Mosquitto, but cites only
+  [MQTT-3.6.1-1]: the statement numbers of 4.3.3 and of the PUBREC, PUBCOMP and PUBREL sections were not certain enough to
+  write down, so those tests cite the section in a comment instead. This broker routes a QoS 2 message when its
+  PUBLISH arrives (method A), Mosquitto when its PUBREL arrives (method B); both are allowed by 4.3.3.
 - **Keep-alive of a client that never sends PINGREQ but sends other packets**: any packet resets the timer; only the
   silent case is tested.
 - **UTF-8 well-formedness of every string field**: tested for the client identifier and topic names with U+0000; the

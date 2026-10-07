@@ -143,11 +143,6 @@ class Protocol(unittest.TestCase):
         got = [sub.recv_publish() for _ in range(3)]
         self.assertEqual([(g[0], g[2]) for g in got], [("lo", 0), ("hi", 0), ("hi", 1)])
 
-    def test_subscribe_at_qos2_is_granted_qos1(self):
-        # 3.8.4: the server may grant a lower QoS than requested.
-        sub = self.connected("s")
-        self.assertEqual(sub.subscribe([("t", 2)]), [1])
-
     def test_suback_has_a_code_per_filter_in_order(self):
         # [MQTT-3.9.3-1]
         sub = self.connected("s")

@@ -76,6 +76,20 @@ class Paho(unittest.TestCase):
         self.assertTrue(wait_for(lambda: len(sub.received) == 2))
         self.assertEqual(sorted(sub.received), [("t/a", b"zero", 0, False), ("t/b", b"one", 1, False)])
 
+    def test_publish_subscribe_qos2(self):
+        # paho runs the four-packet exchange itself, in both directions.
+        sub = self.client("sub")
+        sub.subscribe([("t/#", 2)])
+        self.assertTrue(sub.acks.wait(5))
+        pub = self.client("pub")
+        pub.publish("t/a", b"exactly", qos=2).wait_for_publish(5)
+        pub.publish("t/b", b"once", qos=2, retain=True).wait_for_publish(5)
+        self.assertTrue(wait_for(lambda: len(sub.received) == 2))
+        self.assertEqual(sorted(sub.received), [("t/a", b"exactly", 2, False), ("t/b", b"once", 2, False)])
+        late = self.client("late")
+        late.subscribe([("t/b", 2)])
+        self.assertTrue(wait_for(lambda: late.received == [("t/b", b"once", 2, True)]))
+
     def test_retained_and_will(self):
         pub = self.client("pub")
         pub.publish("r", b"kept", qos=1, retain=True).wait_for_publish(5)
@@ -130,6 +144,16 @@ class MosquittoClients(unittest.TestCase):
         late = subprocess.run(["mosquitto_sub", "-h", "127.0.0.1", "-p", port, "-t", "m/c", "-C", "1", "-W", "3", "-v"],
                               capture_output=True, text=True, timeout=10)
         self.assertEqual(late.stdout.strip(), "m/c three")
+
+    def test_qos2_through_the_cli(self):
+        port = str(self.broker.port)
+        sub = subprocess.Popen(["mosquitto_sub", "-h", "127.0.0.1", "-p", port, "-t", "x/#", "-v", "-q", "2", "-C", "2"],
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        time.sleep(0.4)
+        for topic, msg in (("x/a", "one"), ("x/b", "two")):
+            subprocess.run(["mosquitto_pub", "-h", "127.0.0.1", "-p", port, "-t", topic, "-m", msg, "-q", "2"], check=True)
+        out, err = sub.communicate(timeout=10)
+        self.assertEqual(out.split("\n")[:2], ["x/a one", "x/b two"])
 
     def test_a_will_through_the_cli(self):
         port = str(self.broker.port)

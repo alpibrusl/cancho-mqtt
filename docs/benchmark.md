@@ -32,7 +32,7 @@ lexsys-mqtt: a second core is for the kernel's loopback work and the other proce
 | Cell | What it does | Reported |
 |---|---|---|
 | Paced fan-out | 4 publishers x 50 messages/s, 64-byte payloads, QoS 0, 100 subscribers: 20,000 deliveries/s offered, a load every broker should sustain | deliveries per second at the subscribers |
-| Saturated fan-out QoS 0 and QoS 1 | the same with the publishers going as fast as they can (`-I 0`; QoS 1 with 32 in flight, subscribers at QoS 1) | deliveries per second at the subscribers |
+| Saturated fan-out QoS 0, 1 and 2 | the same with the publishers going as fast as they can (`-I 0`; QoS 1 and 2 with 32 in flight, subscribers at the same QoS) | deliveries per second at the subscribers |
 | Latency | a Python raw-socket probe: publish, wait for it at a second connection, one message in flight, 20,000 samples after 3,000 of warm-up; with 0 and with 1,000 idle connections held open | p50, p99, p99.9 in microseconds |
 | Memory | the broker container's memory as `docker stats` reports it, idle, with 1,000 and with 5,000 idle subscriber connections | MiB |
 | Connect | 5,000 clients, as fast as the generator goes | connections established (the rate is the generator's, see below) |
@@ -43,18 +43,18 @@ Medians, with the range of runs in brackets. Final data: `bench/results.json`.
 
 ### 1 core
 
-| Broker | Paced QoS 0 (20k/s offered), delivered/s | Saturated QoS 0, delivered/s | Saturated QoS 1, delivered/s |
-|---|---:|---:|---:|
-| lexsys-mqtt | 20000 (20000-20000) | 1069k (977k-1168k) | 201.2k (197.3k-203.7k) |
-| Mosquitto 2.0.18 | 20000 (19998-20003) | 344k (324k-394k) | 174.8k (171.6k-189.8k) |
-| NanoMQ | 19997 (19995-20000) | 107k (103k-111k) | 72.0k (71.0k-72.9k) |
-| EMQX 5.8.6 | 20000 (20000-20000) | 57k (56k-60k) | 36.0k (34.5k-36.8k) |
-| VerneMQ 2.2.1 | 20000 (20000-20000) | 307k (307k-334k) | 11.0k (10.6k-11.1k) |
-| HiveMQ CE | 20010 (20007-20024) | 0k (0k-0k) | 8.4k (8.2k-8.5k) |
+| Broker | Paced QoS 0 (20k/s offered), delivered/s | Saturated QoS 0, delivered/s | Saturated QoS 1, delivered/s | Saturated QoS 2, delivered/s |
+|---|---:|---:|---:|---:|
+| lexsys-mqtt | 20000 (20000-20000) | 1222k (1196k-1245k) | 199.2k (197.4k-199.7k) | 112.4k (110.0k-113.6k) |
+| Mosquitto 2.0.18 | 20000 (19998-20003) | 344k (324k-394k) | 174.8k (171.6k-189.8k) | 9.1k (9.1k-9.1k) |
+| NanoMQ | 19997 (19995-20000) | 107k (103k-111k) | 72.0k (71.0k-72.9k) | 19.9k (19.7k-20.3k) |
+| EMQX 5.8.6 | 20000 (20000-20000) | 57k (56k-60k) | 36.0k (34.5k-36.8k) | 20.2k (19.5k-20.4k) |
+| VerneMQ 2.2.1 | 20000 (20000-20000) | 307k (307k-334k) | 11.0k (10.6k-11.1k) | 8.2k (7.7k-9.2k) |
+| HiveMQ CE | 20010 (20007-20024) | 0k (0k-0k) | 8.4k (8.2k-8.5k) | - |
 
 | Broker | Latency p50 / p99 / p99.9 µs, 0 idle connections | same, 1,000 idle | Memory MiB: idle / 1,000 / 5,000 connections | 5,000 connected |
 |---|---|---|---|---:|
-| lexsys-mqtt | 42/79/168 | 43/89/482 | 4 / 14 / 53 | 5000 |
+| lexsys-mqtt | 42/79/168 | 43/89/482 | 5 / 7 / 14 | 5000 |
 | Mosquitto 2.0.18 | 46/84/226 | 47/87/218 | 2 / 10 / 38 | 5000 |
 | NanoMQ | 66/112/357 | 70/117/182 | 1 / 14 / 68 | 5000 |
 | EMQX 5.8.6 | 71/126/338 | 69/114/165 | 194 / 209 / 313 | 5000 |
@@ -63,18 +63,18 @@ Medians, with the range of runs in brackets. Final data: `bench/results.json`.
 
 ### 2 cores
 
-| Broker | Paced QoS 0 (20k/s offered), delivered/s | Saturated QoS 0, delivered/s | Saturated QoS 1, delivered/s |
-|---|---:|---:|---:|
-| lexsys-mqtt | 20000 (20000-20000) | 990k (962k-1012k) | 153.4k (114.0k-160.3k) |
-| Mosquitto 2.0.18 | 20000 (19997-20000) | 380k (358k-391k) | 98.9k (98.0k-100.3k) |
-| NanoMQ | 20000 (19999-20000) | 182k (169k-184k) | 96.9k (96.1k-99.6k) |
-| EMQX 5.8.6 | 20000 (19998-20001) | 86k (85k-87k) | 55.2k (53.6k-56.5k) |
-| VerneMQ 2.2.1 | 20000 (19998-20000) | 563k (547k-596k) | 16.3k (15.6k-17.9k) |
-| HiveMQ CE | 20003 (20000-20005) | 0k (0k-0k) | 16.9k (14.9k-17.6k) |
+| Broker | Paced QoS 0 (20k/s offered), delivered/s | Saturated QoS 0, delivered/s | Saturated QoS 1, delivered/s | Saturated QoS 2, delivered/s |
+|---|---:|---:|---:|---:|
+| lexsys-mqtt | 20000 (20000-20000) | 1037k (982k-1044k) | 162.6k (149.9k-166.7k) | 76.9k (74.3k-84.0k) |
+| Mosquitto 2.0.18 | 20000 (19997-20000) | 380k (358k-391k) | 98.9k (98.0k-100.3k) | 9.0k (9.0k-9.0k) |
+| NanoMQ | 20000 (19999-20000) | 182k (169k-184k) | 96.9k (96.1k-99.6k) | 32.9k (32.8k-35.1k) |
+| EMQX 5.8.6 | 20000 (19998-20001) | 86k (85k-87k) | 55.2k (53.6k-56.5k) | 28.7k (28.4k-29.8k) |
+| VerneMQ 2.2.1 | 20000 (19998-20000) | 563k (547k-596k) | 16.3k (15.6k-17.9k) | 15.5k (13.1k-15.6k) |
+| HiveMQ CE | 20003 (20000-20005) | 0k (0k-0k) | 16.9k (14.9k-17.6k) | - |
 
 | Broker | Latency p50 / p99 / p99.9 µs, 0 idle connections | same, 1,000 idle | Memory MiB: idle / 1,000 / 5,000 connections | 5,000 connected |
 |---|---|---|---|---:|
-| lexsys-mqtt | 43/112/594 | 44/127/369 | 16 / 17 / 56 | 5000 |
+| lexsys-mqtt | 43/112/594 | 44/127/369 | 5 / 7 / 14 | 5000 |
 | Mosquitto 2.0.18 | 47/92/135 | 47/94/157 | 4 / 11 / 40 | 5000 |
 | NanoMQ | 87/150/366 | 85/146/294 | 2 / 15 / 69 | 5000 |
 | EMQX 5.8.6 | 73/180/367 | 75/177/362 | 221 / 222 / 349 | 5000 |
@@ -92,6 +92,15 @@ Medians, with the range of runs in brackets. Final data: `bench/results.json`.
 - *Saturated QoS 1 fan-out:* lexsys-mqtt 199k/s against Mosquitto 175k/s on one core (the broker is at 87% to 90% CPU, not
   flagged generator-limited);
   with two cores the lexsys-mqtt cells are generator-limited (42% to 44% CPU) and Mosquitto's too (36%), so no ordering is claimed.
+- *Saturated QoS 2 fan-out* (added with QoS 2; one core, three runs, HiveMQ CE not run): lexsys-mqtt delivers about 112k/s at 87% to 94%
+  of its core, against NanoMQ and EMQX at about 20k/s (both at 92% to 95%) and VerneMQ at about 8k/s. **Read the delivery ratio
+  with it:** lexsys-mqtt's queues are bounded and drop the newest message, so only about 13% of the offered deliveries reached a
+  subscriber (`delivery_ratio` in the results; NanoMQ about 31%), while EMQX, VerneMQ and Mosquitto delivered nearly all of what the
+  publishers offered, because they slow the publishers instead. These are different answers to overload, and "deliveries per
+  second" favours dropping. **Mosquitto's 9k/s is not its limit**: it used 15% to 17% of its core (8% on two cores) and is flagged
+  generator-limited; why a QoS 2 publisher gets so little through it was not investigated, so no ordering against it is claimed.
+  On two cores lexsys-mqtt's QoS 2 figure (about 77k/s) is generator-limited at 44% CPU and is lower than on one core; that is
+  not explained.
 - *Latency with one message in flight:* p50 42 microseconds against Mosquitto's 46 and the others' 66 to 161. **The probe is
   Python**, so a few microseconds either way is not evidence; the gap to the Erlang and JVM brokers is.
 - *Memory:* see "Memory" below. An idle connection costs lexsys-mqtt about 0.3 KiB of resident size, against Mosquitto's about 1.1 KiB; at 5,000 connections `docker stats` shows 14 MiB against Mosquitto's 38.
@@ -121,6 +130,13 @@ packet is split across reads; a session holds a queue buffer only while its queu
 recently freed slot is reused first, so the pages touched follow what is in flight, not how many connections there are. The
 pools are as large as the old slabs, so the bounds and `memory_bytes` are unchanged. Throughput did not move (QoS 1 one core 199k/s
 before and after; QoS 0 is generator-limited both times).
+
+**Transparent huge pages change the unit.** The figures here were measured with THP set to `madvise`, where a table that is touched
+lazily is resident by 4 KiB pages. With THP `always` (the CI runners' setting, found when a resident-size test there grew by exactly one
+2 MiB huge page late in its run) the first touch of a 2 MiB-aligned part of a table makes all of it resident, so memory then grows in 2 MiB
+steps at moments the workload does not choose, up to the `memory_bytes` the `listening` record states. The per-connection figures above
+are therefore for THP `madvise` or `never`; **not measured** under `always`. The memory tests run the broker with THP off for the same
+reason (`Broker(no_thp=True)`).
 
 **What it does not do.** A broker with thousands of connections that all have a queued message, or all a split packet, at the
 same moment touches as many pages as before; and resident size never shrinks, so a burst's pages stay. That is the same

@@ -71,10 +71,6 @@ pub fn e_unexpected() -> [] int {
     return 0 - 18;
 }
 
-pub fn e_qos2() -> [] int {
-    return 0 - 19;
-}
-
 // ---- packet types --------------------------------------------------------
 
 pub fn t_connect() -> [] int {
@@ -215,7 +211,7 @@ pub fn flags[&d](data: &d [byte]) -> [] int {
 // What a client may send, by type: 0 if it is allowed, else the refusal. The
 // flags a type requires are checked here too (3.x.1: reserved bits).
 pub fn check_kind(k: int, f: int) -> [] int {
-    if k == 1 || k == 12 || k == 14 || k == 4 {
+    if k == 1 || k == 12 || k == 14 || k == 4 || k == 5 || k == 7 {
         if f != 0 {
             return e_reserved();
         }
@@ -224,14 +220,11 @@ pub fn check_kind(k: int, f: int) -> [] int {
     if k == 3 {
         return 0;
     }
-    if k == 8 || k == 10 {
+    if k == 8 || k == 10 || k == 6 {
         if f != 2 {
             return e_reserved();
         }
         return 0;
-    }
-    if k == 5 || k == 6 || k == 7 {
-        return e_qos2();
     }
     if k == 2 || k == 9 || k == 11 || k == 13 {
         return e_unexpected();
@@ -575,9 +568,10 @@ pub fn decode_filters[&d, &t](data: &d [byte], t: &!t [int], with_qos: bool) -> 
     return 0;
 }
 
-// ---- PUBACK --------------------------------------------------------------
+// ---- PUBACK, PUBREC, PUBREL, PUBCOMP -------------------------------------
 
-// The packet id of a PUBACK, or the refusal.
+// The packet id of a PUBACK, PUBREC, PUBREL or PUBCOMP (all four are a two-byte
+// body holding only the identifier), or the refusal.
 pub fn decode_puback[&d](data: &d [byte]) -> [] int {
     if len(data) != 4 {
         return e_malformed();
@@ -657,6 +651,35 @@ pub fn put_puback[&o](out: &!o [byte], at: int, pid: int) -> [] int {
         return 0 - 1;
     }
     out[at] = byte_of(64);
+    out[at + 1] = byte_of(2);
+    return put16(out, at + 2, pid);
+}
+
+// PUBREC (first byte 0x50), PUBREL (0x62: bit 1 of the flags is set, 3.6.1) and
+// PUBCOMP (0x70): a PUBACK with another first byte.
+pub fn put_pubrec[&o](out: &!o [byte], at: int, pid: int) -> [] int {
+    if at < 0 || at + 4 > len(out) {
+        return 0 - 1;
+    }
+    out[at] = byte_of(80);
+    out[at + 1] = byte_of(2);
+    return put16(out, at + 2, pid);
+}
+
+pub fn put_pubrel[&o](out: &!o [byte], at: int, pid: int) -> [] int {
+    if at < 0 || at + 4 > len(out) {
+        return 0 - 1;
+    }
+    out[at] = byte_of(98);
+    out[at + 1] = byte_of(2);
+    return put16(out, at + 2, pid);
+}
+
+pub fn put_pubcomp[&o](out: &!o [byte], at: int, pid: int) -> [] int {
+    if at < 0 || at + 4 > len(out) {
+        return 0 - 1;
+    }
+    out[at] = byte_of(112);
     out[at + 1] = byte_of(2);
     return put16(out, at + 2, pid);
 }

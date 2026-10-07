@@ -11,7 +11,7 @@ import time
 import unittest
 
 from harness import (Broker, Client, Closed, PINGREQ, connect_packet, publish_packet, subscribe_packet,
-                     unsubscribe_packet, puback_packet, pkt, s16, run, records)
+                     unsubscribe_packet, puback_packet, pubrec_packet, pubrel_packet, pubcomp_packet, pkt, s16, run, records)
 
 SEEDS = [1, 2, 3, 4, 5, 6, 7, 8]
 CASES = 400
@@ -28,14 +28,14 @@ def valid_stream(rng):
         topic = rng.choice(["a", "a/b", "a/b/c", "/", "$x/y", "a//b"])
         if kind == 0:
             out += publish_packet(topic, bytes(rng.randrange(256) for _ in range(rng.randrange(40))),
-                                  qos=rng.randrange(2), retain=bool(rng.getrandbits(1)), pid=rng.randrange(1, 100))
+                                  qos=rng.randrange(3), retain=bool(rng.getrandbits(1)), pid=rng.randrange(1, 100))
         elif kind == 1:
             out += subscribe_packet([(rng.choice(["a/#", "a/+", "#", "+/+", "a/b"]), rng.randrange(3))
                                      for _ in range(rng.randrange(1, 4))], pid=rng.randrange(1, 100))
         elif kind == 2:
             out += unsubscribe_packet([rng.choice(["a/#", "a/b"])], pid=rng.randrange(1, 100))
         elif kind == 3:
-            out += puback_packet(rng.randrange(0, 100))
+            out += rng.choice([puback_packet, pubrec_packet, pubrel_packet, pubcomp_packet])(rng.randrange(0, 100))
         elif kind == 4:
             out += PINGREQ
         elif kind == 5:

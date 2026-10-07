@@ -220,8 +220,6 @@
             "protocol.topic-invalid",
             "protocol.filter-invalid",
             "protocol.packet-id",
-            "unsupported.qos2-publish",
-            "unsupported.qos2-packet",
             "protocol.qos3",
             "limit.subscriptions-per-client",
             "limit.subscriptions-total",
@@ -234,7 +232,8 @@
             "protocol.unexpected-packet",
             "limit.topic-level",
             "limit.will-size",
-            "limit.output-full"
+            "limit.output-full",
+            "limit.qos2-inbound"
           ]
         },
         "connection": {
@@ -386,14 +385,6 @@
               "type": "integer",
               "minimum": 0
             },
-            "unsupported.qos2-publish": {
-              "type": "integer",
-              "minimum": 0
-            },
-            "unsupported.qos2-packet": {
-              "type": "integer",
-              "minimum": 0
-            },
             "protocol.qos3": {
               "type": "integer",
               "minimum": 0
@@ -445,6 +436,10 @@
             "limit.output-full": {
               "type": "integer",
               "minimum": 0
+            },
+            "limit.qos2-inbound": {
+              "type": "integer",
+              "minimum": 0
             }
           },
           "required": [
@@ -461,8 +456,6 @@
             "protocol.topic-invalid",
             "protocol.filter-invalid",
             "protocol.packet-id",
-            "unsupported.qos2-publish",
-            "unsupported.qos2-packet",
             "protocol.qos3",
             "limit.subscriptions-per-client",
             "limit.subscriptions-total",
@@ -475,7 +468,8 @@
             "protocol.unexpected-packet",
             "limit.topic-level",
             "limit.will-size",
-            "limit.output-full"
+            "limit.output-full",
+            "limit.qos2-inbound"
           ],
           "additionalProperties": false
         }
@@ -520,8 +514,6 @@
             "protocol.topic-invalid",
             "protocol.filter-invalid",
             "protocol.packet-id",
-            "unsupported.qos2-publish",
-            "unsupported.qos2-packet",
             "protocol.qos3",
             "limit.subscriptions-per-client",
             "limit.subscriptions-total",
@@ -534,7 +526,8 @@
             "protocol.unexpected-packet",
             "limit.topic-level",
             "limit.will-size",
-            "limit.output-full"
+            "limit.output-full",
+            "limit.qos2-inbound"
           ]
         },
         "action": {

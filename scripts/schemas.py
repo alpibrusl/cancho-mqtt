@@ -29,11 +29,11 @@ RULES = [
     "protocol.unsupported-level", "protocol.client-id-rejected", "protocol.reserved-flags",
     "protocol.remaining-length", "limit.packet-size", "protocol.malformed-packet",
     "protocol.topic-invalid", "protocol.filter-invalid", "protocol.packet-id",
-    "unsupported.qos2-publish", "unsupported.qos2-packet", "protocol.qos3",
+    "protocol.qos3",
     "limit.subscriptions-per-client", "limit.subscriptions-total", "limit.connections",
     "timeout.keepalive", "timeout.write-stalled", "limit.queue", "limit.retained",
     "limit.offline-sessions", "protocol.unexpected-packet", "limit.topic-level",
-    "limit.will-size", "limit.output-full",
+    "limit.will-size", "limit.output-full", "limit.qos2-inbound",
 ]
 
 

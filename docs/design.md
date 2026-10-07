@@ -15,8 +15,9 @@ report that can be checked. The model is `lexsys-cache`; the pattern, not the co
 |---|---|---|
 | CONNECT | in | decode |
 | CONNACK | out | encode |
-| PUBLISH (QoS 0, 1; retain; dup) | in and out | decode and encode |
+| PUBLISH (QoS 0, 1, 2; retain; dup) | in and out | decode and encode |
 | PUBACK | in and out | decode and encode |
+| PUBREC, PUBREL, PUBCOMP | in and out | decode and encode (§7a) |
 | SUBSCRIBE | in | decode |
 | SUBACK | out | encode |
 | UNSUBSCRIBE | in | decode |
@@ -24,11 +25,10 @@ report that can be checked. The model is `lexsys-cache`; the pattern, not the co
 | PINGREQ | in | decode |
 | PINGRESP | out | encode |
 | DISCONNECT | in | decode |
-| PUBREC, PUBREL, PUBCOMP | in | **decode, then refused** (`unsupported.qos2-packet`, §5) |
 
-That is the 14 control packets of the specification: 11 are handled, 3 are decoded only to be refused with a tag.
+That is the 14 control packets of the specification: the 14 are handled, and the four a client may never send (CONNACK, SUBACK, UNSUBACK, PINGRESP) are refused with a tag (`protocol.unexpected-packet`). *(Corrected by §7a: until QoS 2 was built, PUBREC, PUBREL and PUBCOMP were decoded only to be refused.)*
 
-**Out.** QoS 2, persistence, TLS, authentication, MQTT 5, websockets, `$SYS`, clustering. Issue #13 records why each
+**Out.** Persistence, TLS, authentication, MQTT 5, websockets, `$SYS`, clustering. Issue #13 records why each
 is out, in `docs/later.md`; the one-line reason for the authority row is in §2.
 
 ## 2. The authority row
@@ -107,7 +107,8 @@ and fails if a default or ceiling here differs from what `mqtt introspect` repor
 | Trie nodes | `max-nodes` | 65,536 | 4,194,304 | `limit.subscriptions-total` |
 | Outbound queue per session, bytes | `queue-bytes` | 32,768 | 1,048,576 | `limit.queue` |
 | Outbound queue per session, messages | `queue-messages` | 64 | 1,024 | `limit.queue` |
-| QoS 1 in-flight window per session | `inflight` | 16 | 64 | (queues behind the window) |
+| QoS 1 and 2 in-flight window per session (outbound) | `inflight` | 16 | 64 | (queues behind the window) |
+| QoS 2 messages received and not yet released, per session | `qos2-inbound` | 16 | 1,024 | `limit.qos2-inbound` |
 | Offline sessions kept (clean-session = 0) | `offline-sessions` | 256 | 16,384 | `limit.offline-sessions` |
 | Retained messages | `retained-messages` | 1,024 | 65,536 | `limit.retained` |
 | Bytes of one retained message, topic included | `retained-slot-bytes` | 1,024 | 262,144 | `limit.retained` |
@@ -135,6 +136,9 @@ with the default bounds, against 73 MiB of tables) and a full one is no larger t
 (an input buffer and a queue buffer are attached to a connection or session only while they hold something, so an idle connection costs about 0.3 KiB resident, see `docs/benchmark.md`) (`test_memory.py` asserts both, and that the resident size after 6,000 rounds of connects, sessions, subscriptions,
 retained messages, wills and refusals is within 1 MiB of what it was after a warm-up). The claim is that memory has a
 ceiling stated at start, not that all of it is touched at start.
+That holds with 4 KiB pages. With transparent huge pages set to `always` the operating system makes a whole 2 MiB region resident on
+the first touch of any byte in it, so resident size grows in 2 MiB steps (still never past `memory_bytes`); found on CI, where a
+resident-size test grew by one huge page late in its run. The memory tests therefore run the broker with THP disabled for the process.
 
 ## 5. Rules: every refusal has a tag and a defined action
 
@@ -156,8 +160,6 @@ unless stated. Spec references are to MQTT 3.1.1 (OASIS, 2014).
 | `protocol.topic-invalid` | PUBLISH topic contains a wildcard, NUL, bad UTF-8, or exceeds a bound | close | 3.3.2-2, 4.7.3 |
 | `protocol.filter-invalid` | SUBSCRIBE or UNSUBSCRIBE filter breaks the wildcard rules | SUBACK 0x80 for that filter; UNSUBACK ignores it | 4.7.1 |
 | `protocol.packet-id` | packet id 0 where one is required | close | 2.3.1-1 |
-| `unsupported.qos2-publish` | PUBLISH with QoS 2 | close | |
-| `unsupported.qos2-packet` | PUBREC, PUBREL or PUBCOMP | close | |
 | `protocol.qos3` | PUBLISH QoS bits are 3 | close | 3.3.1-4 |
 | `limit.subscriptions-per-client`, `limit.subscriptions-total` | subscription bound reached | SUBACK 0x80 for that filter | |
 | `limit.connections` | accept with the table full | close at accept, no CONNACK | |
@@ -170,8 +172,9 @@ unless stated. Spec references are to MQTT 3.1.1 (OASIS, 2014).
 | `limit.topic-level` | a SUBSCRIBE filter with a level over 64 bytes | SUBACK 0x80 for that filter | |
 | `limit.will-size` | a will larger than `will-bytes` | CONNACK 0x03, close | |
 | `limit.output-full` | no room in a session's queue even for a control packet | close | |
+| `limit.qos2-inbound` | a new QoS 2 PUBLISH while the session already holds `qos2-inbound` messages not yet released by PUBREL | close; will is published | |
 
-SUBSCRIBE at QoS 2 is **granted QoS 1** in SUBACK, which 3.1.1 allows (3.8.4). That is not a refusal; it has no tag.
+SUBSCRIBE at QoS 2 is **granted QoS 2** (§7a). A PUBREC, PUBREL or PUBCOMP for a packet identifier the broker does not know is not a refusal (§7a says what is answered).
 
 **No input reaches a panic.** Every arithmetic and index in the codec is bounds-checked and the refusal above is what
 the check produces. Fuzzing is G7.
@@ -285,6 +288,73 @@ not either; the four cases of (old, new) clean-session are in `test_protocol.py`
 
 Memory competes between offline queues and retained messages only through the shared total in §4; each has its own
 bound so neither can starve the other.
+
+## 7a. QoS 2
+
+*Added after v1 (the first item of `docs/later.md`'s order). Written before the code; where building or the differential run
+finds a claim false, it is corrected here in place.*
+
+**Delivery in, method A.** 3.1.1 (4.3.3) allows two ways to handle an inbound QoS 2 PUBLISH: deliver it onward when it
+arrives and remember the packet identifier until PUBREL (method A), or store the message and deliver it on PUBREL (method
+B). This broker takes **method A**: on a PUBLISH at QoS 2 it routes the message at once (retain, then every subscriber at
+the lower of the two QoS), records the packet identifier in the session's *received* set, and queues PUBREC. A second
+PUBLISH with an identifier already in the set (the client resending, DUP or not) is **not routed again**; PUBREC is sent
+again. PUBREL removes the identifier and is always answered with PUBCOMP, known or not (the client must be able to finish).
+Why A: the set holds identifiers, not messages, so its memory is `qos2-inbound` x 8 bytes a session whatever the payload;
+method B would hold up to `max-packet` bytes per pending message, which this broker's "every bound a flag" rule would
+then have to multiply. Cost: the exactly-once promise holds from the publisher's side (a message is routed once per
+identifier per session), but a subscriber may receive the message before the publisher has completed the handshake. **I
+believe Mosquitto does method B** (from memory, unchecked); the differential run (G3) compares what clients observe after
+the handshake is complete, and the difference in *when* is written down in `KNOWN_DIFFERENCES` and asserted.
+
+**Bound.** The received set is per session and bounded by the flag `qos2-inbound` (default 16, ceiling 1,024): a table of
+that many identifiers a session, in one slab sized at start like the others. A new identifier past the bound is refused
+as `limit.qos2-inbound`: close, will published. The message is **not** routed (the identifier cannot be remembered, so
+exactly-once could not be kept). The set survives a disconnect of a persistent session (4.4: a session keeps QoS 2 messages
+received and not completely acknowledged) and is dropped with the session (clean-session 1, eviction, takeover by a clean
+session).
+
+**Delivery out.** A subscription may now be granted QoS 2 and a message goes out at the lower of its QoS and the granted.
+The queue entry (§4, `tables.ls`) gets one more *kind* and one more state machine:
+
+| kind | what | states |
+|---|---|---|
+| 0 | QoS 0 PUBLISH | pending, done |
+| 1 | QoS 1 PUBLISH | pending, sent (awaiting PUBACK), done |
+| 2 | **QoS 2 PUBLISH** | pending, sent (awaiting PUBREC), done (PUBREC arrived) |
+| 3 | control packet (PUBACK, SUBACK, ...) | pending, done |
+| 4 | **PUBREL** | pending, sent (awaiting PUBCOMP), done |
+
+On PUBREC for a kind-2 entry in state *sent*, the entry is marked done and a kind-4 entry with the same identifier is queued
+behind it (it is a control packet: it takes the 256 bytes the queue keeps for them, so it cannot fail for want of room
+unless the queue has no room even for four bytes, which closes as `limit.output-full`). On PUBCOMP the kind-4 entry is done.
+The window (`inflight`) counts identifiers awaiting a reply: a kind-1 or kind-2 entry when sent, a kind-4 entry when sent;
+PUBACK, PUBREC and PUBCOMP each release one. A kind-4 entry is never held back by the window (it replaces the slot a
+PUBREC just released). A packet identifier is in use from the moment its PUBLISH is queued until PUBACK (QoS 1) or PUBCOMP
+(QoS 2), including while it is only a PUBREL entry.
+
+**Reconnect (persistent session).** What was sent and not acknowledged goes out again: a kind-1 or kind-2 entry still
+awaiting its reply is resent as PUBLISH with DUP; a kind-4 entry is resent as PUBREL (which has no DUP flag). A kind-2
+entry already past PUBREC is not resent as PUBLISH (3.1.1 4.3.3: the sender MUST NOT re-send the PUBLISH once PUBREC was
+received). QoS 0 entries and control packets are dropped, as before.
+
+**Answers to packets for identifiers the broker does not know.** PUBREC for an unknown identifier: ignored (counted, no
+PUBREL: **a choice**, see what Mosquitto does in the differential run). PUBCOMP for an unknown identifier: ignored.
+PUBREL for an unknown identifier: PUBCOMP. A PUBREC, PUBREL or PUBCOMP with identifier 0 is `protocol.packet-id`; with
+wrong length `protocol.malformed-packet`; PUBREC and PUBCOMP with flags other than 0, or PUBREL with flags other than 2,
+`protocol.reserved-flags` (2.2.2, 3.6.1, 3.5.1, 3.7.1).
+
+**What changes elsewhere.** The two rules `unsupported.qos2-publish` and `unsupported.qos2-packet` are removed (the catalogue
+is 27 rules, with `limit.qos2-inbound` added); `introspect`, the schema and `mqtt rules` follow from the tables. The flag
+table gains `qos2-inbound`. `docs/conformance.md` gets the statements QoS 2 adds. The differences with Mosquitto that were
+written down for SUBSCRIBE at QoS 2 (we granted 1) go away; overlapping filters (highest QoS here, first match there) remain.
+
+**Memory.** The received set is `nsess x qos2-inbound x 8` bytes (about 160 KiB at the defaults and 1,280 sessions), touched
+only for sessions that use QoS 2 (its slots are 128 bytes, so 32 sessions to a page). Nothing else grows: the queue kinds are
+a byte in the entry header that already existed.
+
+**Not done.** The cost of method A against method B is not measured (the broker has only A). QoS 2 fan-out throughput is in
+`docs/benchmark.md` (added with this section); it was not run for v1, whose cells were QoS 0 and 1.
 
 ## 8. Retained messages
 
