@@ -134,7 +134,7 @@ pub fn auth_budget() -> [] int {
     return 30;
 }
 
-// The three below are fired only by `mqtt-tls`; the plain binary lists them (one table) and never fires them.
+// The three below are the TLS listener's: a connection over the table, a handshake that took too long, and one the engine ended.
 pub fn tls_connections() -> [] int {
     return 31;
 }
@@ -143,7 +143,7 @@ pub fn tls_handshake_timeout() -> [] int {
     return 32;
 }
 
-pub fn tls_handshake_failed() -> [] int {
+pub fn tls_failed() -> [] int {
     return 33;
 }
 
@@ -252,7 +252,7 @@ pub fn tag(i: int) -> [] &static [byte] {
     if i == 32 {
         return "timeout.tls-handshake";
     }
-    return "tls.handshake-failed";
+    return "tls.failed";
 }
 
 // What the broker does when the rule fires, for `introspect`'s `connection_rules`.
@@ -294,13 +294,13 @@ pub fn action(i: int) -> [] &static [byte] {
         return "CONNACK 0x03, then close";
     }
     if i == 31 {
-        return "close at accept, before any TLS (mqtt-tls only)";
+        return "close at accept, before any TLS";
     }
     if i == 32 {
-        return "close (mqtt-tls only)";
+        return "close";
     }
     if i == 33 {
-        return "alert, then close (mqtt-tls only)";
+        return "alert, then close (TLS only)";
     }
     return "close";
 }

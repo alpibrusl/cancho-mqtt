@@ -416,12 +416,31 @@ class Rules(unittest.TestCase):
 
     # ---- the catalogue ---------------------------------------------------
 
+    def test_the_rules_do_not_reach_the_other_counters(self):
+        # `ctr` holds one counter for each rule, from 0, and then the broker's other counters from `k_publishes`: a rule
+        # whose index is that or more would share a slot with, say, the publish count, and ordinary traffic would be
+        # logged as refusals (found when the table grew to 34 and the counters began at 32).
+        import re
+        from pathlib import Path
+        text = (Path(__file__).resolve().parents[2] / "src" / "tables.cho").read_text()
+        first = int(re.search(r"pub fn k_publishes\(\) -> \[\] int \{\n    return (\d+);", text).group(1))
+        status, out, err = run("rules")
+        tags = [r["tag"] for r in records(out) if r["type"] == "rule"]
+        self.assertLessEqual(len(tags), first, "%d rules and the other counters begin at %d" % (len(tags), first))
+
     def test_every_rule_has_a_fixture(self):
         status, out, err = run("rules")
         self.assertEqual(status, 0)
         tags = [r["tag"] for r in records(out) if r["type"] == "rule"]
-        self.assertEqual(len(tags), 31)
-        self.assertEqual(sorted(tags), sorted(FIXTURES), "rules without a fixture, or fixtures without a rule")
+        self.assertEqual(len(tags), 34)
+        # The TLS listener's rules can only be fired with a certificate, so their fixtures are in test_tls.py; this names them.
+        from pathlib import Path
+        tls_text = Path(__file__).with_name("test_tls.py").read_text() if Path(__file__).with_name("test_tls.py").exists() else ""
+        elsewhere = [tag for tag in tags if tag not in FIXTURES]
+        for tag in elsewhere:
+            self.assertTrue(tag.startswith(("limit.tls", "timeout.tls", "tls.")), "no fixture for %s" % tag)
+            self.assertIn('@fixture("%s")' % tag, tls_text, "no fixture for %s in test_tls.py" % tag)
+        self.assertEqual(sorted(t for t in tags if t in FIXTURES), sorted(FIXTURES), "fixtures without a rule")
         for name in FIXTURES.values():
             self.assertTrue(hasattr(Rules, name))
 

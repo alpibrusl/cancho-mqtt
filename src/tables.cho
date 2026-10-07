@@ -67,33 +67,34 @@ pub fn s_stride() -> [] int {
     return 21;
 }
 
-// Counters not tied to a rule, in `ctr` after the rules'.
+// Counters not tied to a rule, in `ctr` after the rules': the rules take slots 0 to 47 (`rules.count()` is at most 48, which
+// tests/conformance/test_rules.py checks), these start at 48.
 pub fn k_publishes() -> [] int {
-    return 32;
+    return 48;
 }
 
 pub fn k_delivered() -> [] int {
-    return 33;
+    return 49;
 }
 
 pub fn k_connects() -> [] int {
-    return 34;
+    return 50;
 }
 
 pub fn k_disconnects() -> [] int {
-    return 35;
+    return 51;
 }
 
 pub fn k_retained_sent() -> [] int {
-    return 36;
+    return 52;
 }
 
 pub fn k_offline_dropped() -> [] int {
-    return 37;
+    return 53;
 }
 
 pub fn k_takeovers() -> [] int {
-    return 38;
+    return 54;
 }
 
 // What `$SYS` reports (design section 7b): socket bytes and MQTT packets each way, PUBLISH
@@ -101,35 +102,35 @@ pub fn k_takeovers() -> [] int {
 // most sessions (online and offline) there have been at once. Publishes queued to a
 // subscriber are `k_delivered`; those it refused are the `limit.queue` rule's counter.
 pub fn k_bytes_in() -> [] int {
-    return 39;
+    return 55;
 }
 
 pub fn k_bytes_out() -> [] int {
-    return 40;
+    return 56;
 }
 
 pub fn k_pkts_in() -> [] int {
-    return 41;
+    return 57;
 }
 
 pub fn k_pkts_out() -> [] int {
-    return 42;
+    return 58;
 }
 
 pub fn k_pub_in() -> [] int {
-    return 43;
+    return 59;
 }
 
 pub fn k_pub_in_bytes() -> [] int {
-    return 44;
+    return 60;
 }
 
 pub fn k_pub_out_bytes() -> [] int {
-    return 45;
+    return 61;
 }
 
 pub fn k_clients_max() -> [] int {
-    return 46;
+    return 62;
 }
 
 // `ctr[64 + rule]` is the second (plus one) in which the rule last left an event.

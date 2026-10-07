@@ -35,6 +35,7 @@ RULES = [
     "limit.offline-sessions", "protocol.unexpected-packet", "limit.topic-level",
     "limit.will-size", "limit.output-full", "limit.qos2-inbound", "protocol.reserved-topic",
     "auth.required", "auth.bad-credentials", "limit.auth-budget",
+    "limit.tls-connections", "timeout.tls-handshake", "tls.failed",
 ]
 
 
