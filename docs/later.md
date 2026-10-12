@@ -19,6 +19,7 @@
 | `$SYS` | **built** (design §7b): 17 Mosquitto-named topics, none of `load/*`, `heap/*`, `store/*` | seven counters, a table of names, a tick | none |
 | Multi-threading | cancho has `spawn` and `join` but no atomics, no channel, no per-thread heap; one core was enough in every measurement | worker threads for TLS handshakes first; sharding the tables needs a channel and a way to wake a poller | new `conc` row |
 | Clustering | one thread, one `Poller`, no outbound connections | peers, subscription propagation, failure handling | `net_out`, forbidden today |
+| Streaming | the broker is a bounded in-memory router; a stream engine needs a log, offsets and replay | a bridge to `cancho-log` and a separate aggregation program; the broker is unchanged; **no estimate** | none for the broker; `fs` and `net_out` in the bridge's own report |
 
 The order I would take them in, if asked, is in the last section. It is a recommendation, not a decision.
 
@@ -256,6 +257,66 @@ started by a supervisor after a crash, accepting the loss persistence would remo
 
 **Authority.** `net_out("")`, never allowed today. A cluster protocol port would also add a second `net_in`.
 
+## Streaming
+
+> **A design record, not a plan. No code, nothing measured for it.** What follows is what I read in the files named and what I
+> reason from them; every cost is an estimate, and a claim I could not check is marked **not checked**. It answers one question
+> asked of the maintainer: *if a stream-processing service is wanted (the kind Kafka Streams, Spark Streaming or Flink are),
+> what does this broker do in it, what does `cancho-log` do, what does `cancho-cache` do, and what is a new program?*
+
+**Why out.** The broker is a router with bounded in-memory queues (§4, §6). It drops the newest message when a queue is full, keeps no
+offsets, and a restart loses sessions and retained messages (§7, §8). A stream engine needs the opposite on each point: a log that
+keeps messages, a position per consumer, and results that survive a restart. Those are not features to add to a broker whose
+promise is "bounded and in memory"; they are a different program.
+
+**Who owns what.** Three programs, none of which grows into another:
+
+| Part | Owner | State today | What it would do for streaming |
+|---|---|---|---|
+| Ingest and live fan-out | this broker | built | devices and services publish; the stream engine subscribes (QoS 1) or reads a bridge's output |
+| Durable log, offsets, replay | `cancho-log` | **L0 only**: append, flush, crash recovery of one segment; no rolling segments, manifest, index or consumer groups (its README) | the record of what was ingested, with a position per consumer |
+| Aggregation: windows, keys, exact sums | a new program (below) | not started | reads the log, emits results, checkpoints its own state |
+| Hot lookups and window counters | `cancho-cache` | built for strings and hashes; **no lists, no streams, no pub/sub, no persistence** (its README, `docs/llms.txt`) | enrichment by key, the latest value per key; not the log |
+
+**Why the cache is not the log.** Redis-style pub/sub has no offsets and no replay, so a consumer that is down loses messages, and a
+restart-safe aggregation cannot be built on it. Redis Streams is the matching design, but it needs persistence and values larger
+than the cache's 16 KiB, both of which the cache lacks; `cancho-log`'s README names Redis Streams over RESP as its first intended
+front end, so that work belongs there, not in the cache. Plain `SUBSCRIBE`/`PUBLISH` in the cache is still a reasonable small
+feature for live notices ("a window closed"), but it is not a backbone.
+
+**Bridge, not broker change.** The log is fed by a separate small program that subscribes to this broker (QoS 1), appends to
+`cancho-log`, and acknowledges after the flush. It holds the `fs` and `net_out` authority in its own report; this broker's report
+does not change. This is the same shape as the bridge under Clustering. What it costs: **the ack-after-flush loses nothing the log
+had flushed, but a message dropped by this broker's full queue (`limit.queue`, §6) never reaches the bridge**, so the guarantee is
+"at least once from the bridge on, best effort before it". That is a stated limit, and it is the broker's drop-newest policy, not a bug.
+
+**The aggregation program (the part that is new).** What it has to do, and where each piece comes from:
+- **Windows and keys.** Tumbling and sliding windows by event time with a watermark, grouped by a typed key. The reader, typed keys and
+  the exact `:int`/`:dec(S)`/`:float` accumulators already exist in `cancho-table` (`tools/table`); the plan is to move them into a
+  package both tools import, which the `Inputs` refactor (cancho-table #30) starts, with a reader that takes a file today and a
+  stream tomorrow. **Not checked:** how much of `table`'s accumulator code is free of the assumption that the input ends.
+- **State that survives a restart.** Checkpoint its state to its own log and replay from the last checkpoint offset. Exact results
+  after replay are the property worth having: `table`'s float sums are exact and independent of thread count (measured; its numbers
+  page), where DuckDB's DOUBLE sums vary by thread count. Whether that matters to a user of a stream is a question for the maintainer.
+- **Bounded state.** `table`'s `--max-state-bytes` refusal assumes the job ends. A stream needs eviction (a window closes and its state
+  is freed) and a rule when a key's state outgrows its bound. That is new design, not a reuse.
+- **One process per partition.** No coordinator, no cluster. Distribution is out until a measured load needs it (see Multi-threading and
+  Clustering above, which apply unchanged).
+
+**What it does not do.** Joins across streams, exactly-once delivery into arbitrary sinks, a SQL planner at Flink's scale. Exactly-once
+here would mean "the same bytes in, the same results out, replay included", which is a property of the log and a deterministic engine,
+not of a transaction protocol across systems.
+
+**What would have to be true.** `cancho-log` past L0: rolling segments, an index, and a position per consumer (its README lists them as
+not yet built). A stated workload the broker plus a bridge cannot serve: a rate, a retention time, a loss budget. Without those this
+section is only a map.
+
+**Authority.** None for this broker. The bridge has `net_out` to this broker's port and an `fs` label narrowed to the log directory;
+the aggregation program has `fs` for its input log and its checkpoint directory and nothing else. Each is its own report.
+
+**Cost.** No estimate for the engine. The bridge is small and its cost is dominated by the flush policy, which is the same unmeasured
+choice as under Persistence (sync per record against sync on a timer).
+
 ## An order, if asked
 
 This is my recommendation, and the maintainer's to change. It was revised after QoS 2, MQTT 3.1 and `$SYS` were built and after
@@ -272,7 +333,8 @@ cancho's TLS server landed.
    **WebSockets** if there are browser clients.
 5. **Worker threads for TLS handshakes** only if cancho's example's bounds are not enough, after atomics A0 exist; sharding only on a
    measured need.
-6. **MQTT 5** after the session model has settled. **Clustering** only on a stated need.
+6. **Streaming** only on a stated workload and after `cancho-log` is past L0; the bridge first, the aggregation program later.
+7. **MQTT 5** after the session model has settled. **Clustering** only on a stated need.
 
 ## What this document does not settle
 
