@@ -8,6 +8,7 @@ on:
 jobs:
   gate:
     runs-on: ubuntu-latest
+    timeout-minutes: 30   # a run takes about 4; a hung step must fail, not sit for hours
     permissions:
       contents: read
     steps:
@@ -44,6 +45,9 @@ jobs:
       # against (docs/design.md sections 10 and 11). Versions are printed so a
       # run records what it compared with.
       - name: Install Mosquitto and paho
+        timeout-minutes: 5
+        env:
+          DEBIAN_FRONTEND: noninteractive   # no package prompt can wait for a keyboard
         run: |
           sudo apt-get update -q
           sudo apt-get install -y -q mosquitto mosquitto-clients jq
@@ -106,6 +110,7 @@ jobs:
   # points at it. Only a push to main publishes; a pull request never does.
   release:
     needs: gate
+    timeout-minutes: 10
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
