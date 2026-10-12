@@ -89,7 +89,7 @@ TOTALS = {
 def schema():
     defs = common_defs()
     defs["listening"] = obj({
-        "type": {"const": "listening"}, "port": NAT, "max_connections": NAT, "max_packet": NAT,
+        "type": {"const": "listening"}, "port": NAT, "tls_port": NAT, "max_connections": NAT, "max_packet": NAT,
         "memory_bytes": NAT, "t_ms": NAT,
     })
     defs["refusal"] = obj({
@@ -103,6 +103,7 @@ def schema():
         "refusals": obj({r: NAT for r in RULES}),
     })
     defs["rule"] = obj({"type": {"const": "rule"}, "tag": {"enum": RULES}, "action": {"type": "string"}})
+    defs["reload"] = obj({"type": {"const": "reload"}, "ok": {"type": "boolean"}, "what": {"type": "string"}, "t_ms": NAT})
     defs["error_record"] = obj({"type": {"const": "error"}, "error": {"$ref": "#/$defs/error"}})
     end = {
         "type": {"const": "end"}, "ok": {"type": "boolean"}, "command": {"const": "mqtt"},
@@ -110,7 +111,7 @@ def schema():
         "t_ms": NAT, **TOTALS, "errors": NAT, "rules": NAT,
     }
     defs["end"] = obj(end, required=["type", "ok", "command", "schema", "complete"])
-    one_of = [{"$ref": "#/$defs/" + n} for n in ("listening", "refusal", "stats", "rule", "error_record", "end")]
+    one_of = [{"$ref": "#/$defs/" + n} for n in ("listening", "refusal", "stats", "rule", "reload", "error_record", "end")]
     return {
         "$schema": DIALECT,
         "$id": "https://github.com/alpibrusl/cancho-mqtt/schemas/mqtt.v1.json",

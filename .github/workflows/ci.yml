@@ -85,8 +85,13 @@ jobs:
       - name: The conformance table is generated from the tests
         run: python3 scripts/coverage.py --check
 
-      - name: Conformance (G3, G8, G9), interop and differential against Mosquitto
+      # The TLS tests own the certificate directory the program is built to read, /etc/cancho/mqtt, and fail (not skip) without it.
+      - name: Conformance (G3, G8, G9), TLS, interop and differential against Mosquitto
+        env:
+          MQTT_REQUIRE_TLS: "1"
         run: |
+          sudo mkdir -p /etc/cancho/mqtt
+          sudo chown "$USER" /etc/cancho/mqtt
           pip install jsonschema
           python3 -W ignore -m unittest discover -s tests/conformance -v
 

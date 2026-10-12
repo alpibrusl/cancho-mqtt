@@ -37,3 +37,8 @@ path = ".cancho-vcs/toolbox.describe"
 name = "auth"
 sources = ["src/auth.cho", "tests/auth_test.cho"]
 std = true
+
+[dependencies.tls]
+git = "https://github.com/alpibrusl/cancho"
+rev = "ad09366df0b6b5daa72cba6e4608f77e5d5e78bf"
+path = "packages/tls/.cancho-vcs/tls"

@@ -12,6 +12,7 @@ import os
 import pathlib
 import signal
 import socket
+import ssl
 import subprocess
 import time
 
@@ -48,16 +49,62 @@ def key_line(name, secret):
     return "%s:sha256$%s$%s\n" % (name, salt.hex(), hashlib.sha256(salt + secret.encode()).hexdigest())
 
 
-class Broker:
-    """`mqtt serve` as a child process; its standard output is the log."""
+# The certificate directory the broker is built to read (docs/design.md section 7d, item 5). It is fixed, so the tests that
+# need certificates own it only while it is empty or marked as theirs: a deployment's certificates are never overwritten.
+CERTS = pathlib.Path("/etc/cancho/mqtt")
+MARKER = ".cancho-mqtt-test"
 
-    def __init__(self, *flags, port=None, no_thp=False, users=None):
+
+def make_identity(directory=CERTS, cn="localhost"):
+    """A fresh ECDSA P-256 key (PKCS#8) and a self-signed certificate for localhost, as `key.pem` and `chain.pem`."""
+    directory = pathlib.Path(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    key, chain = directory / "key.pem", directory / "chain.pem"
+    subprocess.run(["openssl", "genpkey", "-algorithm", "EC", "-pkeyopt", "ec_paramgen_curve:P-256", "-out", str(key)],
+                   check=True, capture_output=True)
+    os.chmod(key, 0o600)
+    subprocess.run(["openssl", "req", "-new", "-x509", "-key", str(key), "-out", str(chain), "-days", "30", "-subj", "/CN=" + cn,
+                    "-addext", "subjectAltName=DNS:localhost,IP:127.0.0.1"], check=True, capture_output=True)
+    return chain.read_bytes()
+
+
+def own_certs():
+    """True if the tests may use (and rewrite) the certificate directory, after giving it an identity."""
+    try:
+        if CERTS.exists() and any(p.name != MARKER for p in CERTS.iterdir()) and not (CERTS / MARKER).exists():
+            return False
+        CERTS.mkdir(parents=True, exist_ok=True)
+        (CERTS / MARKER).write_text("created by the conformance tests; safe to delete\n")
+        make_identity()
+        return True
+    except (OSError, subprocess.CalledProcessError):
+        return False
+
+
+def tls_context(cafile=None, version=ssl.TLSVersion.TLSv1_3, alpn=None):
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    ctx.load_verify_locations(cafile=str(cafile or CERTS / "chain.pem"))
+    ctx.minimum_version = version
+    ctx.maximum_version = version
+    if alpn:
+        ctx.set_alpn_protocols(alpn)
+    return ctx
+
+
+class Broker:
+    """`mqtt serve` as a child process; its standard output is the log. With `tls=True` it also listens for TLS on
+    `tls_port`; with `plain=False` it has no plain listener (`--port 0`)."""
+
+    def __init__(self, *flags, port=None, no_thp=False, users=None, tls=False, plain=True):
         """`no_thp`: run the broker with transparent huge pages off (PR_SET_THP_DISABLE), for the
         tests that measure resident size: with THP `always` (the CI runners') the first touch of
         a 2 MiB-aligned part of a large table makes the whole 2 MiB resident, so a table that is
         only touched lazily still grows in 2 MiB steps, at moments the workload does not choose."""
-        self.port = port or free_port()
+        self.port = (port or free_port()) if plain else 0
+        self.tls_port = free_port() if tls else 0
         self.flags = list(flags)
+        if tls:
+            self.flags += ["--tls-port", str(self.tls_port)]
         if users is not None:
             self.flags += ["--auth", "stdin"]
         self.proc = subprocess.Popen([BINARY, "serve", "--port", str(self.port), *self.flags],
@@ -110,6 +157,9 @@ class Broker:
 
     def client(self, **kw):
         return Client(self.port, **kw)
+
+    def tls_client(self, **kw):
+        return Client(self.tls_port, tls=kw.pop("context", None) or tls_context(), **kw)
 
     def stop(self):
         """SIGTERM, then the whole log. Answers (exit status, records)."""
@@ -242,9 +292,12 @@ class Client:
     """A raw client. `recv()` answers (type, flags, body) of the next packet, raises
     `Closed` if the broker closed the connection, `TimeoutError` if nothing came."""
 
-    def __init__(self, port, timeout=3.0):
+    def __init__(self, port, timeout=3.0, tls=None):
         self.sock = socket.create_connection(("127.0.0.1", port), timeout=timeout)
         self.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        if tls is not None:
+            # `tls` is an `ssl.SSLContext`: the handshake is done here, so a refused one raises here.
+            self.sock = tls.wrap_socket(self.sock, server_hostname="localhost")
         self.buf = b""
         self.timeout = timeout
 
@@ -258,7 +311,7 @@ class Client:
                 chunk = self.sock.recv(65536)
             except socket.timeout:
                 raise TimeoutError("nothing arrived")
-            except (ConnectionResetError, BrokenPipeError):
+            except (ConnectionResetError, BrokenPipeError, ssl.SSLEOFError, ssl.SSLZeroReturnError):
                 raise Closed()
             if not chunk:
                 raise Closed()

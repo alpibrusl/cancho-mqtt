@@ -233,3 +233,15 @@ Paired, the later build was **0.3 percent faster on average, with a standard err
 (from 5.7 percent slower to 4.7 percent faster; one pair varies by about 3 percent). **No difference is detectable at about 2
 percent.** The plain transport's hooks are constant functions, so this was expected; it is measured because the claim that they cost
 nothing is the kind that is wrong without being noticed.
+
+## TLS
+
+*Measured on this machine (x86-64, 4 vCPUs), `build/mqtt` with `--tls-port`, a Python `ssl` client in the same container, the broker's own CPU read from `/proc/<pid>/stat`. Script: not committed (a loop of the harness's `tls_client`); the numbers below are one run each, so read them as magnitudes, not as a comparison.*
+
+| | Measured | Note |
+|---|---|---|
+| Resident size per established connection | **117.7 KiB at 50, 116.4 at 100, 115.8 at 200** held connections | against 0.34 KiB for an idle plain connection (above): about 340 times. The engine's per-slot state is the most of it |
+| CPU of the broker for one full handshake | **6.23 ms** (600 sequential handshakes, 3.74 s of the broker's CPU) | `tls_echo`'s 5.7 ms plus this broker's accept, queue and table work |
+| CPU for data | **8.19 ms per MiB** received and sent together (30.5 MiB in from one publisher, 30.5 MiB out to one subscriber, QoS 0, 8,000-byte payloads) | `tls_echo`'s 6.2 ms per MiB is its echo; this adds the routing and the copy into the subscriber's queue |
+
+What this does not show: fan-out to many TLS subscribers, the broker beside Mosquitto over TLS, handshakes under load from many clients at once, or a long soak. The tests assert that the resident size is flat under 300 connects and disconnects (`test_connect_and_disconnect_churn_is_flat_in_resident_size`), which is not a soak.

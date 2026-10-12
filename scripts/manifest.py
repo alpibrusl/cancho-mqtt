@@ -35,8 +35,9 @@ import tomllib
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 # Never allowed, whatever ceiling.toml says: persistence, foreign code, bridging. `io_read` was on this list until
 # authentication (docs/design.md section 7c): standard input is the credential table, read once, at start. It is allowed by
-# ceiling.toml and by nothing else, and every file label stays forbidden.
-FORBIDDEN = {"ffi", "net_out", "fs_read", "fs_write", "file_read", "file_write", "dir_read", "dir_write"}
+# ceiling.toml and by nothing else. TLS (section 7d, item 5) reads two paths and nothing else: `fs_read` with `/dev/urandom` and with
+# `/etc/cancho/mqtt`, each exact in ceiling.toml, so `fs_read("")` or any other path is not within the ceiling. Every write stays forbidden.
+FORBIDDEN = {"ffi", "net_out", "fs_write", "file_write", "dir_write"}
 
 
 def compiler():

@@ -4,9 +4,9 @@
 
 [![ci](https://github.com/alpibrusl/cancho-mqtt/actions/workflows/ci.yml/badge.svg)](https://github.com/alpibrusl/cancho-mqtt/actions/workflows/ci.yml)
 
-**An MQTT broker you can reason about.** One thread and one poller, memory sized at start, every limit a flag with a ceiling, every refusal a named rule with an exact count, and an authority report the compiler proves: this program cannot touch a file, dial out or call foreign code. MQTT 3.1.1 over plain TCP (and 3.1 clients), QoS 0, 1 and 2, retained messages, wills, persistent sessions and `$SYS`. Written in [cancho](https://github.com/alpibrusl/cancho). For a person it is a small broker that tells you exactly why it refused something; for an agent it is one with `introspect`, `rules` and `skill` commands generated from the tables it runs on.
+**An MQTT broker you can reason about.** One thread and one poller, memory sized at start, every limit a flag with a ceiling, every refusal a named rule with an exact count, and an authority report the compiler proves: this program can read two paths (the entropy file and the certificate directory, only when you ask for TLS), and cannot write a file, dial out or call foreign code. MQTT 3.1.1 over TCP or TLS 1.3 (and 3.1 clients), QoS 0, 1 and 2, retained messages, wills, persistent sessions and `$SYS`. Written in [cancho](https://github.com/alpibrusl/cancho). For a person it is a small broker that tells you exactly why it refused something; for an agent it is one with `introspect`, `rules` and `skill` commands generated from the tables it runs on.
 
-**Status: alpha, for a trusted network.** In memory, plain TCP: passwords (if you turn authentication on) cross the network in the clear, there is no TLS, nothing survives a restart, and no long soak has been run. Put it behind something that does TLS, or on a network where that is acceptable. What it cannot do yet is listed [below](#what-it-cannot-do-yet).
+**Status: alpha.** In memory: nothing survives a restart, and no long soak has been run. TLS 1.3 is built (`--tls-port`) on cancho's TLS server, which is **not independently reviewed** (cancho issue #209): until it is, treat the encryption as unreviewed code, and put the broker behind a terminating proxy if that matters to you. Plain TCP is the default, and then passwords (if you turn authentication on) cross the network in the clear. What it cannot do yet is listed [below](#what-it-cannot-do-yet).
 
 ## One complete flow
 
@@ -22,7 +22,7 @@ $ mqtt serve --port 1883 --max-packet 10
 # Run it; a client keeps a retained reading; another reads it back; a statistic
 $ mqtt serve --port 1883 > broker.log &
 $ head -1 broker.log
-{"type":"listening","port":1883,"max_connections":1024,"max_packet":16384,"memory_bytes":73099264,"t_ms":0}
+{"type":"listening","port":1883,"tls_port":0,"max_connections":1024,"max_packet":16384,"memory_bytes":73099264,"t_ms":0}
 $ mosquitto_pub -p 1883 -t sensors/door -m open -r -q 1
 $ mosquitto_sub -p 1883 -t 'sensors/#' -v -q 1 -C 1
 sensors/door open
@@ -33,7 +33,7 @@ $ kill -TERM %1; jq -c 'select(.type=="end") | {ok, complete, publishes, deliver
 
 # What the compiler proved this program can reach
 $ mqtt introspect | jq -c '.authority | {bounded, effects}'
-{"bounded":true,"effects":["args","clock","conn_accept","conn_read","conn_write","err_write","heap","io_read","io_write","net_in","poll","signals","signals_read"]}
+{"bounded":true,"effects":["args","clock","conn_accept","conn_read","conn_write","dir_read","err_write","file_read","fs_read","heap","io_read","io_write","net_in","poll","signals","signals_read"]}
 ```
 <!-- /gen:flow -->
 
@@ -44,8 +44,8 @@ $ mqtt introspect | jq -c '.authority | {bounded, effects}'
 Most brokers optimise for features and scale out. This one optimises for being *predictable and checkable* on one core.
 
 * **Bounded.** The tables are allocated at start from flags (`mqtt introspect` lists each with its default and ceiling), so memory has a stated ceiling and does not follow the workload: resident size stays flat under churn (a test asserts it), and an idle connection costs about 0.3 KiB. [docs/benchmark.md](docs/benchmark.md)
-* **Checkable authority.** The compiler derives what the program can reach: no file reads or writes, no outbound connections, no foreign code, one listener; standard input is read once at start, and only with `--auth stdin`. `mqtt introspect` prints it, it is embedded in the binary, and CI fails if it differs from the committed [`manifests/mqtt.authority.json`](manifests/mqtt.authority.json) or exceeds [`ceiling.toml`](ceiling.toml). Five mutants of the gate itself must be refused. [docs/design.md](docs/design.md) section 2
-* **Every refusal has a tag.** 31 connection-level rules (`protocol.*`, `limit.*`, `timeout.*`, `auth.*`), each with a fixture, an action and an exact counter; the log reports the first of a repeat and how many it suppressed. `mqtt rules` lists them.
+* **Checkable authority.** The compiler derives what the program can reach: no file writes, no outbound connections, no foreign code; the only files it can read are `/dev/urandom` and beneath `/etc/cancho/mqtt` (the TLS entropy and certificate, read at start and on `SIGHUP`, only with `--tls-port`); standard input is read once at start, and only with `--auth stdin`. `mqtt introspect` prints it, it is embedded in the binary, and CI fails if it differs from the committed [`manifests/mqtt.authority.json`](manifests/mqtt.authority.json) or exceeds [`ceiling.toml`](ceiling.toml). Nine mutants of the gate itself must be refused. [docs/design.md](docs/design.md) section 2
+* **Every refusal has a tag.** 34 connection-level rules (`protocol.*`, `limit.*`, `timeout.*`, `auth.*`, `tls.*`), each with a fixture, an action and an exact counter; the log reports the first of a repeat and how many it suppressed. `mqtt rules` lists them.
 * **Errors and logs are data.** A process error is one JSON line with a rule, a hint and, where a script can apply it safely, a repair that never widens authority. The log is bounded NDJSON that ends with an `end` record, and no payload is ever logged. `--format text` is for people.
 * **Tested against Mosquitto.** The same scenarios, scripted and generated, run against this broker and Mosquitto 2.0.18, and what each client sees is compared. The two differences are written down and asserted. [docs/design.md](docs/design.md) section 9
 * **Measured.** Against five other brokers, with the conditions and what was *not* measured. [docs/benchmark.md](docs/benchmark.md)
@@ -95,13 +95,13 @@ $ mqtt rules | jq -c 'select(.tag=="limit.packet-size")'
 ```console
 # Know the memory before it accepts a connection: it is computed from the flags and printed at start
 $ mqtt serve --port 1883 --max-connections 1024 | head -1
-{"type":"listening","port":1883,"max_connections":1024,"max_packet":16384,"memory_bytes":73099264,"t_ms":0}
+{"type":"listening","port":1883,"tls_port":0,"max_connections":1024,"max_packet":16384,"memory_bytes":73099264,"t_ms":0}
 $ mqtt serve --port 1883 --max-connections 8192 --queue-bytes 65536 | head -1
-{"type":"listening","port":1883,"max_connections":8192,"max_packet":16384,"memory_bytes":713771008,"t_ms":0}
+{"type":"listening","port":1883,"tls_port":0,"max_connections":8192,"max_packet":16384,"memory_bytes":713771008,"t_ms":0}
 ```
 <!-- /gen:case_sizing -->
 
-**4. A shared network: only known gateways connect.** Authentication is optional and off by default; with `--auth stdin` the table of users is read once from standard input, so the broker still reads no file.
+**4. A shared network: only known gateways connect.** Authentication is optional and off by default; with `--auth stdin` the table of users is read once from standard input, so the broker reads no file for it.
 
 <!-- gen:case_auth -->
 ```console
@@ -148,12 +148,24 @@ build/mqtt skill           # the same, as an agentskills.io SKILL.md
 build/mqtt serve --max-connections 8192 --queue-bytes 65536    # every bound is a flag
 ```
 
+TLS 1.3 is on a second port, with the certificate and key read from `/etc/cancho/mqtt` (the path is fixed when the program is built; the files are `chain.pem` and an unencrypted ECDSA P-256 `key.pem`, which `SIGHUP` reads again):
+
+```sh
+sudo mkdir -p /etc/cancho/mqtt && sudo chown $USER /etc/cancho/mqtt
+openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out /etc/cancho/mqtt/key.pem
+openssl req -new -x509 -key /etc/cancho/mqtt/key.pem -out /etc/cancho/mqtt/chain.pem -days 30 -subj /CN=localhost -addext subjectAltName=DNS:localhost
+build/mqtt serve --port 0 --tls-port 8883       # --port 0: no plain listener
+mosquitto_pub -p 8883 --cafile /etc/cancho/mqtt/chain.pem -t a/b -m hello
+```
+
+The engine is not independently reviewed (cancho issue #209). It speaks TLS 1.3 only, so a client that speaks only TLS 1.2 is refused with alert 70.
+
 ## What you get
 
 * **MQTT 3.1.1, and 3.1 clients** (`MQIsdp`, level 3). CONNECT, keep-alive at 1.5 times the interval, clean and persistent sessions, takeover, wills (not published after a DISCONNECT, published after a takeover as Mosquitto does).
 * **QoS 0, 1 and 2**, with an in-flight window, DUP redelivery on resume, and the PUBREL after a PUBREC resent rather than the PUBLISH. Inbound QoS 2 is routed when the PUBLISH arrives (a resend is acknowledged, not routed twice); Mosquitto routes at PUBREL, and the difference is asserted. [design section 7a](docs/design.md)
 * **Retained messages** in a fixed table, and **bounded per-session queues** that drop the newest message for a slow subscriber, count it, and close a connection that makes no write progress for 30 s.
-* **Authentication, optional** (`--auth stdin`): a table of users read once from standard input, so the program reads no file; `pbkdf2-sha256` for passwords and a one-hash `sha256` for generated device keys; CONNACK 5, 4 and 3 with a rule each; a per-second budget on hashing so that logins cannot starve the one thread. [design section 7c](docs/design.md)
+* **Authentication, optional** (`--auth stdin`): a table of users read once from standard input; `pbkdf2-sha256` for passwords and a one-hash `sha256` for generated device keys; CONNACK 5, 4 and 3 with a rule each; a per-second budget on hashing so that logins cannot starve the one thread. [design section 7c](docs/design.md)
 * **`$SYS`**: 17 topics under Mosquitto's names (clients, messages, bytes, subscriptions, uptime, version), with the retain flag on the first delivery and not after, as Mosquitto does it. Not `load/*`, `heap/*` or `store/*`. [design section 7b](docs/design.md)
 * **Topic matching** with `+` and `#`, the `$` rule, and one copy per subscriber at the highest QoS granted (Mosquitto delivers it at the first match's QoS; asserted).
 * **Hostile input:** 6,400 hostile connections, split and malformed packets, slowloris and tight bounds are in the tests; no input reaches a panic.
@@ -164,7 +176,7 @@ build/mqtt serve --max-connections 8192 --queue-bytes 65536    # every bound is 
 
 ## What it cannot do yet
 
-* **No TLS, and authentication is optional.** Without `--auth stdin` clients are anonymous; with it a password or key crosses plain TCP unprotected, and there is no per-topic authorisation, no reload without a restart and no client certificates. cancho now has a TLS 1.3 server (signer, engine and an example; not independently reviewed); this broker has no transport layer for it yet, and client certificates are not built there. [docs/later.md](docs/later.md)
+* **TLS is 1.3 only and server-side only, and authentication is optional.** `--tls-port` serves TLS 1.3 with an ECDSA P-256 certificate and key read from `/etc/cancho/mqtt/chain.pem` and `key.pem` (a path fixed at build time; `SIGHUP` reads them again). No TLS 1.2, no RSA certificate, no client certificates, no session tickets (every reconnect is a full handshake, about 6 ms of CPU), and the broker closes without a close_notify. The engine is not independently reviewed. An established connection holds about 116 KiB. Without `--auth stdin` clients are anonymous, and there is no per-topic authorisation. [docs/design.md](docs/design.md) section 7d, [docs/later.md](docs/later.md)
 * **Nothing survives a restart:** sessions, queues and retained messages are in memory only.
 * **MQTT 5, WebSockets, clustering, shared subscriptions:** not built. A terminating proxy covers TLS and WebSockets today.
 * **`$SYS`** has no `load/*`, `heap/*` or `store/*` topics.
@@ -208,7 +220,7 @@ Deliveries a second at the subscribers, 4 publishers and 100 subscribers going a
 Every change goes through what CI runs: `cancho fmt --check src tests generated`, `cancho build`, `cancho test`, the schema, manifest, coverage and site checks, the four authority mutants, the line limit, and the conformance, interop and differential suite against Mosquitto. Design before code, in `docs/design.md`, with claims measured; a claim that turns out false is corrected in place. No source file over 2,000 lines, every refusal has a rule tag, no input reaches a panic.
 
 <!-- gen:counts -->
-184 black-box tests that read only what a client sees, and 31 unit tests of the codec, the topic trie, the flag table and the password hash
+216 black-box tests that read only what a client sees, and 31 unit tests of the codec, the topic trie, the flag table and the password hash
 <!-- /gen:counts -->
 
 ## Licence

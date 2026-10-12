@@ -1039,7 +1039,7 @@ fn step[&t, &c](tab: &!t transport.Links, core: &!c tables.Core, k: int, events:
     if moved < 0 {
         cd[cp + 7] = now;
     }
-    if events & 1 != 0 {
+    if events & 1 != 0 || transport.more(tab, k) {
         var again = true;
         while again {
             again = false;

@@ -41,7 +41,7 @@ fn version() -> [] &static [byte] {
 
 // Rules of this tool's own, beside the shared catalogue: `tag|exit|repairable|summary`.
 pub fn own_rules() -> [] &static [byte] {
-    return "args.out-of-range|2|sometimes|a bound is below its smallest value or above its ceiling;args.unknown-command|2|never|the first operand is not serve;conflict.address-in-use|5|never|the port is already bound by another program;io.bind-failed|1|never|the operating system refused to listen on the port for a reason that is not permission or a port in use;io.poller-failed|1|never|the operating system could not create the poller or the signal watch;auth.credentials-invalid|2|never|the credential table read from standard input breaks a rule of its format";
+    return "args.out-of-range|2|sometimes|a bound is below its smallest value or above its ceiling;args.unknown-command|2|never|the first operand is not serve;conflict.address-in-use|5|never|the port is already bound by another program;io.bind-failed|1|never|the operating system refused to listen on the port for a reason that is not permission or a port in use;io.poller-failed|1|never|the operating system could not create the poller or the signal watch;auth.credentials-invalid|2|never|the credential table read from standard input breaks a rule of its format;tls.entropy-unavailable|1|never|the operating system gave fewer than 32 bytes of entropy;tls.directory-unreadable|1|never|the certificate directory could not be opened;tls.identity-unreadable|1|never|a certificate or key file could not be read;tls.identity-refused|2|never|the TLS engine refused the certificate or key";
 }
 
 fn tool() -> [] describe.Tool {
@@ -212,6 +212,12 @@ pub fn configure[&h, &g, &i, &c](heap: &!h Heap, args: &g Args, io: &!i Io, cfg:
     if ranged && parse_errors == 0 && cfg[config.i_queue_bytes()] < cfg[config.i_packet()] + 8 + 256 {
         e = problem(heap, e, "args.conflict", "queue-bytes must be at least max-packet + 264, or a packet of the largest size could never be queued", "raise --queue-bytes or lower --max-packet", "flags", "--queue-bytes --max-packet");
     }
+    if ranged && parse_errors == 0 && cfg[config.i_port()] == 0 && cfg[config.i_tls_port()] == 0 {
+        e = problem(heap, e, "args.conflict", "there is nothing to listen on: --port and --tls-port are both 0", "give --port or --tls-port a port", "flags", "--port --tls-port");
+    }
+    if ranged && parse_errors == 0 && cfg[config.i_port()] != 0 && cfg[config.i_port()] == cfg[config.i_tls_port()] {
+        e = problem(heap, e, "args.conflict", "--port and --tls-port are the same port", "give them different ports", "flags", "--port --tls-port");
+    }
     var count = 0;
     borrow e as &er in {
         count = fail.count(er);
@@ -265,7 +271,7 @@ pub fn begin[&h, &g, &k, &w, &i](heap: &!h Heap, cfg: &g [int], abuf: Box[[byte]
                 poller_add_signals(broker.poller(bw), watch, token);
             }
             let text = cfg[config.i_format()] == 1;
-            let ok = logs.listening(heap, io, text, cfg[config.i_port()], cfg[config.i_connections()], cfg[config.i_packet()], config.memory(cfg), 0);
+            let ok = logs.listening(heap, io, text, cfg[config.i_port()], cfg[config.i_tls_port()], cfg[config.i_connections()], cfg[config.i_packet()], config.memory(cfg), 0);
             let limiter = box_slice(heap, 2 * rules.count(), 0);
             return Began::Ok(Run { b: b, limiter: limiter, t0: t0, last_stats: 0, text: text, ok: ok, running: ok });
         }
@@ -424,5 +430,18 @@ pub fn listen_failed[&h, &i](heap: &!h Heap, io: &!i Io, port: int, errno: int, 
     w = json.put_int(heap, w, port);
     w = json.put_key(heap, w, "errno");
     w = json.put_int(heap, w, errno);
+    return refuse(heap, io, fail.add(heap, fail.empty_in(heap, own_rules()), w), text_mode);
+}
+
+// A step of starting TLS failed: `rule` says which, `what` names the file or the engine's tag, `code` is the errno or the
+// engine's code. The certificate and the key are never in the record.
+pub fn tls_refused[&h, &i, &d](heap: &!h Heap, io: &!i Io, rule: &static [byte], message: &static [byte], hint: &static [byte], what: &d [byte], code: int, text_mode: bool) -> [heap, io_write, err_write] int {
+    var w = fail.open_in(heap, own_rules(), rule, message, hint);
+    w = fail.no_repair(heap, w);
+    w = fail.detail_open(heap, w);
+    w = json.put_key(heap, w, "what");
+    w = json.put_string(heap, w, what);
+    w = json.put_key(heap, w, "code");
+    w = json.put_int(heap, w, code);
     return refuse(heap, io, fail.add(heap, fail.empty_in(heap, own_rules()), w), text_mode);
 }
