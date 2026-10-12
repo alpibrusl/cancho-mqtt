@@ -355,6 +355,7 @@
     "sentences",
     "sha256_state_len",
     "sha512_state_len",
+    "shell_builtin",
     "short_of",
     "size",
     "size$int",
@@ -407,5 +408,5 @@
   ],
   "folded_operators": 161,
   "folded_calls": 1,
-  "functions": 554
+  "functions": 555
 }
