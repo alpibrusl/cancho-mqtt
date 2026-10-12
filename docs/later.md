@@ -69,7 +69,7 @@ filesystem".
 
 ## TLS
 
-> **Update:** TLS is designed in `docs/design.md` section 7d (a second binary, `mqtt-tls`, so that `mqtt` keeps a report with no file label; measured here against cancho's engine). The status below is the earlier reading and is kept for the engine's details.
+> **Update:** TLS is designed in `docs/design.md` section 7d, measured here against cancho's engine: one binary, with the certificate directory fixed at build time (`/etc/cancho/mqtt`) and cancho's multi-literal `narrow` keeping the report exact (revised after a review; an earlier version chose two binaries). The status below is the earlier reading and is kept for the engine's details.
 
 **Status (2026-10-07): the server is built in cancho; nothing here is built yet.** Read from cancho `main` at `8515d0d`
 (`docs/tls-server.md`, its sections 10 and 11), not from the earlier design:

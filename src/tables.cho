@@ -67,33 +67,34 @@ pub fn s_stride() -> [] int {
     return 21;
 }
 
-// Counters not tied to a rule, in `ctr` after the rules'.
+// Counters not tied to a rule, in `ctr` after the rules': the rules take slots 0 to 47 (`rules.count()` is at most 48, which
+// tests/conformance/test_rules.py checks), these start at 48.
 pub fn k_publishes() -> [] int {
-    return 32;
+    return 48;
 }
 
 pub fn k_delivered() -> [] int {
-    return 33;
+    return 49;
 }
 
 pub fn k_connects() -> [] int {
-    return 34;
+    return 50;
 }
 
 pub fn k_disconnects() -> [] int {
-    return 35;
+    return 51;
 }
 
 pub fn k_retained_sent() -> [] int {
-    return 36;
+    return 52;
 }
 
 pub fn k_offline_dropped() -> [] int {
-    return 37;
+    return 53;
 }
 
 pub fn k_takeovers() -> [] int {
-    return 38;
+    return 54;
 }
 
 // What `$SYS` reports (design section 7b): socket bytes and MQTT packets each way, PUBLISH
@@ -101,35 +102,35 @@ pub fn k_takeovers() -> [] int {
 // most sessions (online and offline) there have been at once. Publishes queued to a
 // subscriber are `k_delivered`; those it refused are the `limit.queue` rule's counter.
 pub fn k_bytes_in() -> [] int {
-    return 39;
+    return 55;
 }
 
 pub fn k_bytes_out() -> [] int {
-    return 40;
+    return 56;
 }
 
 pub fn k_pkts_in() -> [] int {
-    return 41;
+    return 57;
 }
 
 pub fn k_pkts_out() -> [] int {
-    return 42;
+    return 58;
 }
 
 pub fn k_pub_in() -> [] int {
-    return 43;
+    return 59;
 }
 
 pub fn k_pub_in_bytes() -> [] int {
-    return 44;
+    return 60;
 }
 
 pub fn k_pub_out_bytes() -> [] int {
-    return 45;
+    return 61;
 }
 
 pub fn k_clients_max() -> [] int {
-    return 46;
+    return 62;
 }
 
 // `ctr[64 + rule]` is the second (plus one) in which the rule last left an event.
@@ -227,6 +228,7 @@ pub res struct Core {
     abudget: int,
     aspent: int,
     awin: int,
+    dead: Box[[int]],
 }
 
 // All the tables, for the bounds in `cfg` (indexed by `config.i_*`). The poller
@@ -290,11 +292,11 @@ pub fn open[&h, &g](heap: &!h Heap, poller: Poller, cfg: &g [int], abuf: Box[[by
         qd[nsess - 1] = 0 - 1;
     }
     let trie = subs.open(heap, cfg[config.i_nodes()], cfg[config.i_subs_total()], nsess, cfg[config.i_levels()], cfg[config.i_subs_client()]);
-    return Core { poller: poller, events: box_slice(heap, 128, 0), cs: cs, inbuf: box_slice(heap, (limit + 1) * pmax, byte_of(0)), ss: ss, sid: box_slice(heap, nsess * idmax, byte_of(0)), qbuf: box_slice(heap, nsess * qbytes, byte_of(0)), wbuf: box_slice(heap, nsess * will_max, byte_of(0)), idb: box_slice(heap, 2 * nsess + 1, 0 - 1), rt: box_slice(heap, 4 * nret, 0), rtext: box_slice(heap, nret * rslot, byte_of(0)), trie: trie, ct: box_slice(heap, wire.connect_slots(), 0), pt: box_slice(heap, wire.publish_slots(), 0), ft: box_slice(heap, wire.filter_slots(), 0), codes: box_slice(heap, wire.max_filters(), 0), dirty: box_slice(heap, 2 * limit + 8, 0), ctr: box_slice(heap, counters(), 0), evq: box_slice(heap, 6 * event_capacity(), 0), evtext: box_slice(heap, event_text() * event_capacity(), byte_of(0)), foreign: box_slice(heap, 32, 0), stage: box_slice(heap, stage_bytes(), byte_of(0)), spill: spill, qfree: qfree, q2in: box_slice(heap, nsess * cfg[config.i_qos2_inbound()], 0), q2max: cfg[config.i_qos2_inbound()], free_spill: 0, free_q: 0, limit: limit, pmax: pmax, qbytes: qbytes, qmsgs: cfg[config.i_queue_messages()], window: cfg[config.i_inflight()], nsess: nsess, noffline: noffline, idmax: idmax, topic_max: cfg[config.i_topic_max()], levels_max: cfg[config.i_levels()], nret: nret, rslot: rslot, will_max: will_max, connect_to: cfg[config.i_connect_timeout()], stall_to: cfg[config.i_write_stall()], free_sess: 0, online: 0, offline: 0, retained_used: 0, ndirty: 0, ev_head: 0, ev_count: 0, now: 0, now_ms: 0, last_sweep: 0, auto_id: 0, nforeign: 0, start_ms: 0, sys_every: cfg[config.i_sys_interval()], sys_last: 0, aon: cfg[config.i_auth()], abuf: abuf, ameta: ameta, ausers: ausers, adummy: adummy, abudget: cfg[config.i_auth_budget()], aspent: 0, awin: 0 - 1 };
+    return Core { poller: poller, events: box_slice(heap, 128, 0), cs: cs, inbuf: box_slice(heap, (limit + 1) * pmax, byte_of(0)), ss: ss, sid: box_slice(heap, nsess * idmax, byte_of(0)), qbuf: box_slice(heap, nsess * qbytes, byte_of(0)), wbuf: box_slice(heap, nsess * will_max, byte_of(0)), idb: box_slice(heap, 2 * nsess + 1, 0 - 1), rt: box_slice(heap, 4 * nret, 0), rtext: box_slice(heap, nret * rslot, byte_of(0)), trie: trie, ct: box_slice(heap, wire.connect_slots(), 0), pt: box_slice(heap, wire.publish_slots(), 0), ft: box_slice(heap, wire.filter_slots(), 0), codes: box_slice(heap, wire.max_filters(), 0), dirty: box_slice(heap, 2 * limit + 8, 0), ctr: box_slice(heap, counters(), 0), evq: box_slice(heap, 6 * event_capacity(), 0), evtext: box_slice(heap, event_text() * event_capacity(), byte_of(0)), foreign: box_slice(heap, 32, 0), stage: box_slice(heap, stage_bytes(), byte_of(0)), spill: spill, qfree: qfree, q2in: box_slice(heap, nsess * cfg[config.i_qos2_inbound()], 0), q2max: cfg[config.i_qos2_inbound()], free_spill: 0, free_q: 0, limit: limit, pmax: pmax, qbytes: qbytes, qmsgs: cfg[config.i_queue_messages()], window: cfg[config.i_inflight()], nsess: nsess, noffline: noffline, idmax: idmax, topic_max: cfg[config.i_topic_max()], levels_max: cfg[config.i_levels()], nret: nret, rslot: rslot, will_max: will_max, connect_to: cfg[config.i_connect_timeout()], stall_to: cfg[config.i_write_stall()], free_sess: 0, online: 0, offline: 0, retained_used: 0, ndirty: 0, ev_head: 0, ev_count: 0, now: 0, now_ms: 0, last_sweep: 0, auto_id: 0, nforeign: 0, start_ms: 0, sys_every: cfg[config.i_sys_interval()], sys_last: 0, aon: cfg[config.i_auth()], abuf: abuf, ameta: ameta, ausers: ausers, adummy: adummy, abudget: cfg[config.i_auth_budget()], aspent: 0, awin: 0 - 1, dead: box_slice(heap, 2 * limit + 2, 0) };
 }
 
 pub fn drop[&h](heap: &!h Heap, core: Core) -> [heap] int {
-    let Core { poller, events, cs, inbuf, ss, sid, qbuf, wbuf, idb, rt, rtext, trie, ct, pt, ft, codes, dirty, ctr, evq, evtext, foreign, stage, spill, qfree, q2in, q2max, free_spill, free_q, limit, pmax, qbytes, qmsgs, window, nsess, noffline, idmax, topic_max, levels_max, nret, rslot, will_max, connect_to, stall_to, free_sess, online, offline, retained_used, ndirty, ev_head, ev_count, now, now_ms, last_sweep, auto_id, nforeign, start_ms, sys_every, sys_last, aon, abuf, ameta, ausers, adummy, abudget, aspent, awin } = core;
+    let Core { poller, events, cs, inbuf, ss, sid, qbuf, wbuf, idb, rt, rtext, trie, ct, pt, ft, codes, dirty, ctr, evq, evtext, foreign, stage, spill, qfree, q2in, q2max, free_spill, free_q, limit, pmax, qbytes, qmsgs, window, nsess, noffline, idmax, topic_max, levels_max, nret, rslot, will_max, connect_to, stall_to, free_sess, online, offline, retained_used, ndirty, ev_head, ev_count, now, now_ms, last_sweep, auto_id, nforeign, start_ms, sys_every, sys_last, aon, abuf, ameta, ausers, adummy, abudget, aspent, awin, dead } = core;
     poller_close(poller);
     unbox_slice(heap, events);
     unbox_slice(heap, cs);
@@ -322,6 +324,7 @@ pub fn drop[&h](heap: &!h Heap, core: Core) -> [heap] int {
     unbox_slice(heap, q2in);
     unbox_slice(heap, abuf);
     unbox_slice(heap, ameta);
+    unbox_slice(heap, dead);
     return 0;
 }
 
