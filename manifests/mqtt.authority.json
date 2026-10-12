@@ -83,6 +83,11 @@
       "bounded": true
     }
   ],
+  "never_touches": [
+    "the filesystem",
+    "other programs",
+    "foreign code"
+  ],
   "foreign_symbols": [],
   "pure": [
     "action",
@@ -407,5 +412,5 @@
   ],
   "folded_operators": 161,
   "folded_calls": 1,
-  "functions": 554
+  "functions": 555
 }
