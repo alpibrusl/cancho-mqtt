@@ -54,10 +54,11 @@ fn kv[&h](heap: &!h Heap, b: buffer.Buffer, key: &static [byte], n: int) -> [hea
 }
 
 // `{"type":"listening", ...}`
-pub fn listening[&h, &i](heap: &!h Heap, io: &!i Io, text_mode: bool, port: int, connections: int, packet: int, memory: int, t_ms: int) -> [heap, io_write] bool {
+pub fn listening[&h, &i](heap: &!h Heap, io: &!i Io, text_mode: bool, port: int, tls_port: int, connections: int, packet: int, memory: int, t_ms: int) -> [heap, io_write] bool {
     if text_mode {
         var b = buffer.append(heap, buffer.empty(heap, 128), "listening");
         b = kv(heap, b, "port", port);
+        b = kv(heap, b, "tls_port", tls_port);
         b = kv(heap, b, "max_connections", connections);
         b = kv(heap, b, "max_packet", packet);
         b = kv(heap, b, "memory_bytes", memory);
@@ -70,6 +71,8 @@ pub fn listening[&h, &i](heap: &!h Heap, io: &!i Io, text_mode: bool, port: int,
     w = json.put_string(heap, w, "listening");
     w = json.put_key(heap, w, "port");
     w = json.put_int(heap, w, port);
+    w = json.put_key(heap, w, "tls_port");
+    w = json.put_int(heap, w, tls_port);
     w = json.put_key(heap, w, "max_connections");
     w = json.put_int(heap, w, connections);
     w = json.put_key(heap, w, "max_packet");
@@ -291,5 +294,33 @@ pub fn rule_record[&h, &i](heap: &!h Heap, io: &!i Io, text_mode: bool, r: int) 
     w = json.put_string(heap, w, rules.tag(r));
     w = json.put_key(heap, w, "action");
     w = json.put_string(heap, w, rules.action(r));
+    return sent(heap, io, w);
+}
+
+// `{"type":"reload", ...}`: the certificate and key read again on SIGHUP (design section 7d, item 6). `ok` says whether the
+// engine took them; `what` is the engine's refusal tag, or the file that could not be read, or `ok`. Never a byte of either file.
+pub fn reload[&h, &i, &d](heap: &!h Heap, io: &!i Io, text_mode: bool, ok: bool, what: &d [byte], t_ms: int) -> [heap, io_write] bool {
+    if text_mode {
+        var b = buffer.append(heap, buffer.empty(heap, 96), "reload");
+        if ok {
+            b = buffer.append(heap, b, " ok=true");
+        } else {
+            b = buffer.append(heap, b, " ok=false");
+        }
+        b = buffer.append(heap, b, " what=");
+        b = buffer.append(heap, b, what);
+        b = kv(heap, b, "t_ms", t_ms);
+        return sent_text(heap, io, b);
+    }
+    var w = json.writer(heap, 128);
+    w = json.begin_object(heap, w);
+    w = json.put_key(heap, w, "type");
+    w = json.put_string(heap, w, "reload");
+    w = json.put_key(heap, w, "ok");
+    w = json.put_bool(heap, w, ok);
+    w = json.put_key(heap, w, "what");
+    w = json.put_string(heap, w, what);
+    w = json.put_key(heap, w, "t_ms");
+    w = json.put_int(heap, w, t_ms);
     return sent(heap, io, w);
 }

@@ -50,8 +50,13 @@ class Surface(unittest.TestCase):
         self.assertTrue(doc["authority"]["bounded"])
         self.assertEqual(doc["authority"]["foreign_symbols"], [])
         names = {l["name"] for l in doc["authority"]["labels"]}
-        for forbidden in ("ffi", "net_out", "file_read", "file_write", "fs_read", "fs_write", "dir_read"):
+        for forbidden in ("ffi", "net_out", "file_write", "fs_write", "dir_write"):
             self.assertNotIn(forbidden, names)
+        # TLS reads two paths and nothing else (design section 7d, item 5): each exact, never `fs_read("")`.
+        reads = sorted(l["argument"] for l in doc["authority"]["labels"] if l["name"] == "fs_read")
+        self.assertEqual(reads, ["/dev/urandom", "/etc/cancho/mqtt"])
+        self.assertIn("dir_read", names)
+        self.assertIn("file_read", names)
         # Standard input is the credential table, read once at start (design section 7c): the one read there is.
         self.assertIn("io_read", names)
         self.assertEqual(doc["reads_environment"], False)
@@ -73,7 +78,9 @@ class Surface(unittest.TestCase):
             self.assertEqual(limits[name]["ceiling"], ceiling, name)
         # Every numeric flag is either a bound in the table or one of the two the text names.
         extra = set(flags) - {r[0] for r in rows}
-        self.assertEqual(extra, {"port", "stats-seconds", "format", "auth"})
+        # The TLS flags are section 7d's, not section 4's table.
+        self.assertEqual(extra, {"port", "stats-seconds", "format", "auth", "tls-port", "tls-connections", "tls-handshakes",
+                                 "tls-rate", "tls-handshake-timeout"})
 
     @unittest.skipUnless(sys.platform.startswith("linux"), "F_SETPIPE_SZ is Linux's")
     def test_a_log_reader_that_stops_reading_stalls_the_broker(self):

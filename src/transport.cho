@@ -1,28 +1,232 @@
 edition 5;
 
-// `mqtt.transport` -- the plain transport: a connection is a socket (docs/design.md section 7d).
+// `mqtt.transport` -- how a connection's bytes reach the broker: a plain socket, or a socket under TLS 1.3 (docs/design.md
+// section 7d).
 //
-// The broker reaches its connections and its listeners only through this module, so that a second module of the same name,
-// for TLS (tls/transport.cho), can sit in its place in a second binary without a line of `broker.cho` changing. This one is
-// a pass-through to `std.conns`: every function does what the `conns` function of the same name does, and the hooks only
-// TLS needs (`tick`, `pump`, `more`, `wants_write`, `expired`, `reload`) do nothing. `Links` is the
-// connection table and, in another transport, whatever else a connection needs.
+// The broker reaches its connections and its listeners only through this module. A connection is either plain, in which
+// case every function does what the `std.conns` function of the same name does, or secure, in which case it also has a
+// slot of the TLS engine (`packages/tls`, cancho's server) and the buffers that slot needs. The engine moves bytes and
+// owns no socket, no clock and no log; this module owns the sockets, the bounds on handshakes and the admission queue.
+//
+// A secure connection goes through four phases, in `st[slot * stride()]`:
+//
+//     0 plain       never a secure connection's
+//     1 queued      accepted, waiting for its turn to start a handshake; not watched, so its ClientHello waits in the kernel
+//     2 handshake   `tls.serve` called: it can cost the server a signature, about 5.7 ms of CPU (section 7d, item 2)
+//     3 established what the broker reads and writes is plaintext through `tls.recv` and `tls.send`
+//
+// **The bounds** (section 7d, item 4). A connection over the engine's slots (`--tls-connections`) is accepted and closed at
+// once (`limit.tls-connections`). One over the handshakes in progress (`--tls-handshakes`) or over the handshakes started in
+// this second (`--tls-rate`) is delayed, not refused: it stays queued, oldest first. A connection that has not finished its
+// handshake in `--tls-handshake-timeout` seconds is closed (`timeout.tls-handshake`); waiting for a turn has its own deadline of the
+// same length, so a connection delayed behind others is not charged for the delay in its handshake.
 
 module mqtt.transport;
 
 import std.conns;
+import mqtt.rules;
+import tls;
+
+// Per secure connection, in `st`: the phase, when the phase began (seconds), the engine slot, the ciphertext for the socket
+// (`pend[ps..pe]`), the ciphertext from it not yet fed (`inq[is..ie]`), 1 once the socket's read side ended, the id the queue
+// entry names, and 1 if the last `read` filled its buffer (so more plaintext may be waiting).
+fn stride() -> [] int {
+    return 10;
+}
+
+fn s_phase() -> [] int {
+    return 0;
+}
+
+fn s_since() -> [] int {
+    return 1;
+}
+
+fn s_es() -> [] int {
+    return 2;
+}
+
+fn s_ps() -> [] int {
+    return 3;
+}
+
+fn s_pe() -> [] int {
+    return 4;
+}
+
+fn s_is() -> [] int {
+    return 5;
+}
+
+fn s_ie() -> [] int {
+    return 6;
+}
+
+fn s_eof() -> [] int {
+    return 7;
+}
+
+fn s_id() -> [] int {
+    return 8;
+}
+
+fn s_full() -> [] int {
+    return 9;
+}
+
+fn phase_plain() -> [] int {
+    return 0;
+}
+
+fn phase_queued() -> [] int {
+    return 1;
+}
+
+fn phase_handshake() -> [] int {
+    return 2;
+}
+
+fn phase_established() -> [] int {
+    return 3;
+}
+
+// The room each engine slot has for ciphertext waiting for the socket, and for ciphertext waiting for the engine.
+fn cap() -> [] int {
+    return 16384;
+}
+
+// The bounds, in `cfg`: engine slots, handshakes in progress, handshakes a second, seconds to finish a handshake.
+pub fn c_slots() -> [] int {
+    return 0;
+}
+
+pub fn c_handshakes() -> [] int {
+    return 1;
+}
+
+pub fn c_rate() -> [] int {
+    return 2;
+}
+
+pub fn c_timeout() -> [] int {
+    return 3;
+}
+
+pub fn cfg_len() -> [] int {
+    return 4;
+}
+
+// Globals, in `gl`: the queue's head and length, the second the rate counts in, handshakes started in it, the next id.
+fn g_head() -> [] int {
+    return 0;
+}
+
+fn g_len() -> [] int {
+    return 1;
+}
+
+fn g_window() -> [] int {
+    return 2;
+}
+
+fn g_started() -> [] int {
+    return 3;
+}
+
+fn g_next_id() -> [] int {
+    return 4;
+}
+
+fn g_len_total() -> [] int {
+    return 5;
+}
+
+// A queue entry names the connection slot and, above it, the id the connection had when it was queued: a slot freed and
+// taken again by another connection leaves the old entry stale, and `tick` skips it.
+fn entry_base() -> [] int {
+    return 65536;
+}
 
 pub res struct Links {
     table: conns.Table,
+    eng: tls.Engine,
+    // `st`: `stride()` ints for each connection slot the broker may hold (none when there is no secure listener).
+    st: Box[[int]],
+    // `owner`: for each engine slot, the connection slot that holds it, or -1.
+    owner: Box[[int]],
+    pend: Box[[byte]],
+    inq: Box[[byte]],
+    queue: Box[[int]],
+    gl: Box[[int]],
+    cfg: Box[[int]],
 }
 
-// Links for `capacity` connections. The listeners are the broker's (`broker.open`), not the transport's.
-pub fn open[&h](heap: &!h Heap, capacity: int) -> [heap] Links {
-    return Links { table: conns.empty(heap, capacity) };
+// Links for up to `maxconn` connections, `tls_slots` of them secure (0 for none: then nothing but the table is allocated
+// beyond the engine's one slot). The listeners are the broker's (`broker.open`), not the transport's.
+pub fn open[&h](heap: &!h Heap, maxconn: int, tls_slots: int) -> [heap] Links {
+    var st_len = 0;
+    var queue_len = 1;
+    var slots = tls_slots;
+    if tls_slots > 0 {
+        st_len = maxconn * stride();
+        queue_len = maxconn + 1;
+    } else {
+        slots = 1;
+    }
+    var owner = box_slice(heap, slots, 0);
+    var k = 0;
+    borrow mut owner as &!ow in {
+        while k < slots {
+            contents(ow)[k] = 0 - 1;
+            k = k + 1;
+        }
+    }
+    var links = Links { table: conns.empty(heap, 64), eng: tls.open_server(heap, slots), st: box_slice(heap, st_len + 1, 0), owner: owner, pend: box_slice(heap, slots * cap(), byte_of(0)), inq: box_slice(heap, slots * cap(), byte_of(0)), queue: box_slice(heap, queue_len, 0), gl: box_slice(heap, g_len_total(), 0), cfg: box_slice(heap, cfg_len(), 0) };
+    borrow mut links as &!lw in {
+        contents(lw.cfg)[c_slots()] = tls_slots;
+        contents(lw.gl)[g_next_id()] = 1;
+    }
+    return links;
+}
+
+// The bounds for a transport opened with secure slots.
+pub fn bound[&n](links: &!n Links, handshakes: int, rate: int, timeout: int) -> [] int {
+    contents(links.cfg)[c_handshakes()] = handshakes;
+    contents(links.cfg)[c_rate()] = rate;
+    contents(links.cfg)[c_timeout()] = timeout;
+    // ALPN: a client that offers protocols must offer `mqtt` (a browser or an HTTPS client that reached this port is refused with
+    // alert 120); one that offers none connects.
+    return tls.set_alpn(links.eng, "mqtt");
+}
+
+// 32 bytes of entropy for the engine's generator. 0, or a refusal code.
+pub fn seed[&n, &e](links: &!n Links, entropy: &e [byte]) -> [] int {
+    return tls.seed(links.eng, entropy);
+}
+
+// An identity (a chain and its key, as PEM) for the engine; `id` is -1 to add one, or the identity to replace. 0 or above
+// is the identity's number, below 0 a refusal code (`tls.refusal_tag`).
+pub fn identity[&n, &c, &k](links: &!n Links, id: int, chain: &c [byte], key: &k [byte], unix_ms: int) -> [] int {
+    if id < 0 {
+        return tls.add_identity(links.eng, chain, key, "", unix_ms);
+    }
+    return tls.replace_identity(links.eng, id, chain, key, unix_ms);
+}
+
+pub fn refusal_tag(code: int) -> [] &static [byte] {
+    return tls.refusal_tag(code);
 }
 
 pub fn drop[&h](heap: &!h Heap, links: Links) -> [heap] int {
-    let Links { table } = links;
+    let Links { table, eng, st, owner, pend, inq, queue, gl, cfg } = links;
+    unbox_slice(heap, st);
+    unbox_slice(heap, owner);
+    unbox_slice(heap, pend);
+    unbox_slice(heap, inq);
+    unbox_slice(heap, queue);
+    unbox_slice(heap, gl);
+    unbox_slice(heap, cfg);
+    tls.close(heap, eng);
     return conns.drop(heap, table);
 }
 
@@ -34,55 +238,357 @@ pub fn slots[&n](links: &n Links) -> [] int {
     return conns.slots(links.table);
 }
 
-// A connection `c` into the table: the grown table and its slot, or -1 when it is full. `secure` says which listener it
-// came from; a transport with no secure listener never sees it set.
-pub fn put[&h](heap: &!h Heap, links: Links, c: Conn, secure: bool) -> [heap] (Links, int) {
-    let Links { table } = links;
-    let (grown, slot) = conns.put(heap, table, c);
-    return (Links { table: grown }, slot);
+// The phase of the connection in `slot`: plain unless it is a secure one.
+fn phase_of[&n](links: &n Links, slot: int) -> [] int {
+    let b = slot * stride();
+    if slot < 0 || b + stride() > len(contents(links.st)) {
+        return phase_plain();
+    }
+    return contents(links.st)[b + s_phase()];
 }
 
-// Make the connection in `slot` ready and start watching it. 0, or -1 when the socket could not be set up.
+// A connection `c` into the table: the grown table and its slot, -1 when the table is full, or -2 when it is secure and
+// every engine slot is taken (the connection has been closed: `limit.tls-connections`). `secure` says which listener it
+// came from.
+pub fn put[&h](heap: &!h Heap, links: Links, c: Conn, secure: bool) -> [heap] (Links, int) {
+    let Links { table, eng, st, owner, pend, inq, queue, gl, cfg } = links;
+    var free = 0 - 1;
+    if secure {
+        var k = 0;
+        borrow owner as &ow in {
+            while free < 0 && k < len(contents(ow)) {
+                if contents(ow)[k] < 0 {
+                    free = k;
+                }
+                k = k + 1;
+            }
+        }
+        if free < 0 {
+            conn_close(c);
+            return (Links { table: table, eng: eng, st: st, owner: owner, pend: pend, inq: inq, queue: queue, gl: gl, cfg: cfg }, 0 - 2);
+        }
+    }
+    let (grown, slot) = conns.put(heap, table, c);
+    var keep = owner;
+    var states = st;
+    if secure && slot >= 0 {
+        borrow mut keep as &!ow in {
+            contents(ow)[free] = slot;
+        }
+        borrow mut states as &!sw in {
+            let b = slot * stride();
+            var j = 0;
+            while j < stride() {
+                contents(sw)[b + j] = 0;
+                j = j + 1;
+            }
+            contents(sw)[b + s_phase()] = phase_queued();
+            contents(sw)[b + s_es()] = free;
+        }
+    }
+    return (Links { table: grown, eng: eng, st: states, owner: keep, pend: pend, inq: inq, queue: queue, gl: gl, cfg: cfg }, slot);
+}
+
+// Make the connection in `slot` ready. A plain connection is watched at once; a secure one is queued for a handshake and
+// not watched until one starts (`tick`). 0, or -1 when the socket could not be set up.
 pub fn begin[&n, &p](links: &!n Links, poller: &!p Poller, slot: int, secure: bool, now: int) -> [poll] int {
-    if conns.nonblocking(links.table, slot) != 0 || conns.nodelay(links.table, slot) != 0 || conns.watch(links.table, poller, slot, slot + 1, 1) != 0 {
+    if conns.nonblocking(links.table, slot) != 0 || conns.nodelay(links.table, slot) != 0 {
         return 0 - 1;
+    }
+    if !secure {
+        if conns.watch(links.table, poller, slot, slot + 1, 1) != 0 {
+            return 0 - 1;
+        }
+        return 0;
+    }
+    let st = contents(links.st);
+    let gl = contents(links.gl);
+    let b = slot * stride();
+    st[b + s_since()] = now;
+    st[b + s_id()] = gl[g_next_id()];
+    gl[g_next_id()] = gl[g_next_id()] + 1;
+    let room = len(contents(links.queue));
+    if gl[g_len()] >= room {
+        return 0 - 1;
+    }
+    contents(links.queue)[(gl[g_head()] + gl[g_len()]) % room] = st[b + s_id()] * entry_base() + slot;
+    gl[g_len()] = gl[g_len()] + 1;
+    return 0;
+}
+
+// Once a round: start handshakes while the bounds allow, oldest first. `dead` is filled with (slot, rule) pairs for
+// connections the transport ended; answers how many pairs.
+pub fn tick[&n, &p, &d](links: &!n Links, poller: &!p Poller, now: int, unix_ms: int, dead: &!d [int]) -> [poll] int {
+    if contents(links.cfg)[c_slots()] == 0 {
+        return 0;
+    }
+    let gl = contents(links.gl);
+    let st = contents(links.st);
+    let cfg = contents(links.cfg);
+    let room = len(contents(links.queue));
+    if now != gl[g_window()] {
+        gl[g_window()] = now;
+        gl[g_started()] = 0;
+    }
+    var ended = 0;
+    // Entries whose connection ended while it waited are dropped from the head, whatever the bounds say, so that a flood of
+    // connections that come and go cannot fill the queue.
+    var stale = true;
+    while stale && gl[g_len()] > 0 {
+        let entry = contents(links.queue)[gl[g_head()]];
+        let slot = entry % entry_base();
+        let b = slot * stride();
+        if st[b + s_phase()] == phase_queued() && st[b + s_id()] == entry / entry_base() {
+            stale = false;
+        } else {
+            gl[g_head()] = (gl[g_head()] + 1) % room;
+            gl[g_len()] = gl[g_len()] - 1;
+        }
+    }
+    while gl[g_len()] > 0 && gl[g_started()] < cfg[c_rate()] && tls.handshakes_in_progress(links.eng) < cfg[c_handshakes()] {
+        let entry = contents(links.queue)[gl[g_head()]];
+        gl[g_head()] = (gl[g_head()] + 1) % room;
+        gl[g_len()] = gl[g_len()] - 1;
+        let slot = entry % entry_base();
+        let b = slot * stride();
+        if st[b + s_phase()] == phase_queued() && st[b + s_id()] == entry / entry_base() {
+            let code = tls.serve(links.eng, st[b + s_es()], unix_ms);
+            if code != 0 {
+                dead[2 * ended] = slot;
+                dead[2 * ended + 1] = rules.tls_failed();
+                ended = ended + 1;
+            } else {
+                // Each phase has its own deadline: the time spent waiting does not count against the handshake.
+                st[b + s_phase()] = phase_handshake();
+                st[b + s_since()] = now;
+                gl[g_started()] = gl[g_started()] + 1;
+                if conns.watch(links.table, poller, slot, slot + 1, 1) != 0 {
+                    dead[2 * ended] = slot;
+                    dead[2 * ended + 1] = rules.tls_failed();
+                    ended = ended + 1;
+                }
+            }
+        }
+    }
+    return ended;
+}
+
+// Writes the ciphertext the engine has for the socket. 0 when all of it went (or there was none), 1 when the socket is full,
+// -1 when it failed.
+fn flush_slot[&n](links: &!n Links, slot: int) -> [conn_write] int {
+    let st = contents(links.st);
+    let b = slot * stride();
+    let es = st[b + s_es()];
+    let base = es * cap();
+    while true {
+        if st[b + s_ps()] == st[b + s_pe()] {
+            st[b + s_ps()] = 0;
+            st[b + s_pe()] = tls.take(links.eng, es, contents(links.pend)[base..base + cap()]);
+            if st[b + s_pe()] == 0 {
+                return 0;
+            }
+        }
+        match conns.write(links.table, slot, contents(links.pend)[base + st[b + s_ps()]..base + st[b + s_pe()]]) {
+            Sent::Wrote(k) => {
+                st[b + s_ps()] = st[b + s_ps()] + k;
+            }
+            Sent::Again => {
+                return 1;
+            }
+            Sent::Failed(e) => {
+                return 0 - 1;
+            }
+        }
     }
     return 0;
 }
 
-// Once a round: start what may be started. `dead` is filled with (slot, rule) pairs for connections the transport ended;
-// answers how many pairs.
-pub fn tick[&n, &p, &d](links: &!n Links, poller: &!p Poller, now: int, unix_ms: int, dead: &!d [int]) -> [] int {
-    return 0;
+// Everything the transport must do for `slot` after the poller said `events` (bit 0 read, bit 1 write) and before the broker
+// reads: the handshake, and the ciphertext the engine has for the socket. 0; -1 when the handshake just finished; or 1 + the
+// rule that ends the connection.
+pub fn pump[&n, &p](links: &!n Links, poller: &!p Poller, slot: int, events: int, now: int) -> [conn_read, conn_write] int {
+    let st = contents(links.st);
+    let b = slot * stride();
+    if slot < 0 || b + stride() > len(st) || st[b + s_phase()] < phase_handshake() {
+        return 0;
+    }
+    let es = st[b + s_es()];
+    let ib = es * cap();
+    var result = 0;
+    var going = true;
+    while going {
+        going = false;
+        let w = flush_slot(links, slot);
+        if w < 0 {
+            return 1 + rules.tls_failed();
+        }
+        let ev = tls.event(links.eng, es);
+        if ev == tls.event_failed() {
+            return 1 + rules.tls_failed();
+        }
+        if ev == tls.event_established() && st[b + s_phase()] == phase_handshake() {
+            st[b + s_phase()] = phase_established();
+            result = 0 - 1;
+        }
+        if st[b + s_phase()] == phase_handshake() {
+            if st[b + s_is()] < st[b + s_ie()] {
+                let c = tls.feed(links.eng, es, contents(links.inq)[ib + st[b + s_is()]..ib + st[b + s_ie()]]);
+                if c > 0 {
+                    st[b + s_is()] = st[b + s_is()] + c;
+                    going = true;
+                } else if c < 0 {
+                    // Failed: its alert, if any, is written on the next turn.
+                    st[b + s_is()] = st[b + s_ie()];
+                    going = true;
+                }
+            }
+            if st[b + s_is()] == st[b + s_ie()] {
+                st[b + s_is()] = 0;
+                st[b + s_ie()] = 0;
+            }
+            // The socket is read only once nothing else moved this turn, so what the last bytes did is seen before an end of file
+            // that came with them.
+            if !going && w == 0 && events & 1 != 0 && st[b + s_ie()] == 0 && st[b + s_eof()] == 0 {
+                match conns.read(links.table, slot, contents(links.inq)[ib..ib + cap()]) {
+                    Received::Data(k) => {
+                        st[b + s_ie()] = k;
+                        going = true;
+                    }
+                    Received::End => {
+                        st[b + s_eof()] = 1;
+                        tls.eof(links.eng, es);
+                        going = true;
+                    }
+                    Received::Again => {
+                    }
+                    Received::Failed(e) => {
+                        return 1 + rules.tls_failed();
+                    }
+                }
+            }
+        }
+    }
+    return result;
 }
 
-// Everything the transport must do for `slot` after the poller said `events` (bit 0 read, bit 1 write) and before the
-// broker reads: 0, or 1 + the rule that ends the connection.
-pub fn pump[&n, &p](links: &!n Links, poller: &!p Poller, slot: int, events: int, now: int) -> [] int {
-    return 0;
-}
-
-// Whether `slot` holds data a read did not return, so that the broker reads again without waiting for the network.
+// Whether `slot` holds data a read did not return, so that the broker reads again without waiting for the network:
+// ciphertext not yet fed, or a read that filled its buffer.
 pub fn more[&n](links: &n Links, slot: int) -> [] bool {
-    return false;
+    if phase_of(links, slot) != phase_established() {
+        return false;
+    }
+    let st = contents(links.st);
+    let b = slot * stride();
+    return st[b + s_is()] < st[b + s_ie()] || st[b + s_full()] == 1;
 }
 
-// Whether `slot` needs to be told when its socket can be written, beyond what the broker itself has queued.
+// Whether `slot` has ciphertext the socket did not take, so that the broker asks to be told when it can be written.
 pub fn wants_write[&n](links: &n Links, slot: int) -> [] bool {
-    return false;
+    if phase_of(links, slot) < phase_handshake() {
+        return false;
+    }
+    let st = contents(links.st);
+    let b = slot * stride();
+    return st[b + s_ps()] < st[b + s_pe()];
 }
 
-// The rule that ends `slot` for taking too long before CONNECT is possible, or -1.
+// The rule that ends `slot` for taking too long before CONNECT is possible, or -1: a secure connection that has not
+// finished its handshake (queued time included).
 pub fn expired[&n](links: &n Links, slot: int, now: int) -> [] int {
+    let phase = phase_of(links, slot);
+    if phase == phase_queued() || phase == phase_handshake() {
+        if now - contents(links.st)[slot * stride() + s_since()] > contents(links.cfg)[c_timeout()] {
+            return rules.tls_handshake_timeout();
+        }
+    }
     return 0 - 1;
 }
 
 pub fn read[&n, &b](links: &!n Links, slot: int, into: &!b [byte]) -> [conn_read] Received {
-    return conns.read(links.table, slot, into);
+    let phase = phase_of(links, slot);
+    if phase == phase_plain() {
+        return conns.read(links.table, slot, into);
+    }
+    // A handshake's bytes are `pump`'s.
+    if phase != phase_established() {
+        return Received::Again;
+    }
+    let st = contents(links.st);
+    let k = slot * stride();
+    let es = st[k + s_es()];
+    let ib = es * cap();
+    st[k + s_full()] = 0;
+    while true {
+        let got = tls.recv(links.eng, es, into);
+        if got > 0 {
+            if got == len(into) {
+                st[k + s_full()] = 1;
+            }
+            return Received::Data(got);
+        }
+        if got == 0 {
+            return Received::End;
+        }
+        if got != tls.would_block() {
+            return Received::Failed(1);
+        }
+        // Nothing waiting in the engine: more ciphertext, from what the socket gave earlier or from the socket.
+        if st[k + s_is()] < st[k + s_ie()] {
+            let c = tls.feed(links.eng, es, contents(links.inq)[ib + st[k + s_is()]..ib + st[k + s_ie()]]);
+            if c > 0 {
+                st[k + s_is()] = st[k + s_is()] + c;
+            } else if c < 0 {
+                return Received::Failed(1);
+            } else {
+                return Received::Again;
+            }
+        } else {
+            st[k + s_is()] = 0;
+            st[k + s_ie()] = 0;
+            if st[k + s_eof()] == 1 {
+                return Received::End;
+            }
+            match conns.read(links.table, slot, contents(links.inq)[ib..ib + cap()]) {
+                Received::Data(n) => {
+                    st[k + s_ie()] = n;
+                }
+                Received::End => {
+                    st[k + s_eof()] = 1;
+                    tls.eof(links.eng, es);
+                }
+                Received::Again => {
+                    return Received::Again;
+                }
+                Received::Failed(e) => {
+                    return Received::Failed(e);
+                }
+            }
+        }
+    }
+    return Received::Again;
 }
 
 pub fn write[&n, &b](links: &!n Links, slot: int, data: &b [byte]) -> [conn_write] Sent {
-    return conns.write(links.table, slot, data);
+    let phase = phase_of(links, slot);
+    if phase == phase_plain() {
+        return conns.write(links.table, slot, data);
+    }
+    if phase != phase_established() {
+        return Sent::Again;
+    }
+    let es = contents(links.st)[slot * stride() + s_es()];
+    let k = tls.send(links.eng, es, data);
+    if k < 0 && k != tls.would_block() {
+        return Sent::Failed(1);
+    }
+    let w = flush_slot(links, slot);
+    if w < 0 {
+        return Sent::Failed(1);
+    }
+    if k > 0 {
+        return Sent::Wrote(k);
+    }
+    return Sent::Again;
 }
 
 pub fn watch[&n, &p](links: &!n Links, poller: &!p Poller, slot: int, token: int, events: int) -> [poll] int {
@@ -93,6 +599,23 @@ pub fn rewatch[&n, &p](links: &!n Links, poller: &!p Poller, slot: int, token: i
     return conns.rewatch(links.table, poller, slot, token, events);
 }
 
+// Close the connection in `slot`, and free the engine slot a secure one held. The engine's close_notify is not written:
+// this call has no way to wait for the socket (a peer sees the stream end).
 pub fn close[&n](links: &!n Links, slot: int) -> [] int {
+    let phase = phase_of(links, slot);
+    if phase != phase_plain() {
+        let b = slot * stride();
+        let st = contents(links.st);
+        let es = st[b + s_es()];
+        if phase >= phase_handshake() {
+            tls.drop(links.eng, es);
+        }
+        contents(links.owner)[es] = 0 - 1;
+        var j = 0;
+        while j < stride() {
+            st[b + j] = 0;
+            j = j + 1;
+        }
+    }
     return conns.close(links.table, slot);
 }

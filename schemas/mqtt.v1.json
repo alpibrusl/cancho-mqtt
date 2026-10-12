@@ -17,6 +17,9 @@
       "$ref": "#/$defs/rule"
     },
     {
+      "$ref": "#/$defs/reload"
+    },
+    {
       "$ref": "#/$defs/error_record"
     },
     {
@@ -172,6 +175,10 @@
           "type": "integer",
           "minimum": 0
         },
+        "tls_port": {
+          "type": "integer",
+          "minimum": 0
+        },
         "max_connections": {
           "type": "integer",
           "minimum": 0
@@ -192,6 +199,7 @@
       "required": [
         "type",
         "port",
+        "tls_port",
         "max_connections",
         "max_packet",
         "memory_bytes",
@@ -587,6 +595,31 @@
         "type",
         "tag",
         "action"
+      ],
+      "additionalProperties": false
+    },
+    "reload": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "reload"
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "what": {
+          "type": "string"
+        },
+        "t_ms": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "type",
+        "ok",
+        "what",
+        "t_ms"
       ],
       "additionalProperties": false
     },

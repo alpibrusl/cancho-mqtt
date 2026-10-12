@@ -1,0 +1,166 @@
+edition 6;
+
+// `mqtt.tlsfiles` -- the certificate and key the TLS transport serves (docs/design.md section 7d, items 5 and 6): `chain.pem`
+// and `key.pem` beneath the one directory `main` opened, read through its handle (`docs/directory-handles.md`), one component
+// at a time and following no link, so the code that runs while the broker faces the network holds `dir_read` and `file_read`
+// and no path authority at all. The program reads the files and gives them to the engine; the engine never does.
+
+module mqtt.tlsfiles;
+
+import std.bytes;
+import std.dirs;
+import std.option;
+import mqtt.transport;
+
+// The room for a chain as PEM (the engine takes at most 16 KiB of DER, about 22 KiB of PEM), and for a key.
+pub fn chain_cap() -> [] int {
+    return 65536;
+}
+
+pub fn key_cap() -> [] int {
+    return 8192;
+}
+
+// What `load` answers for a file it could not read, below every refusal code: `file_base() * which - errno`, `which` 1 for
+// the chain and 2 for the key. `EFBIG` (27) is a file larger than its room.
+pub fn file_base() -> [] int {
+    return 0 - 10000;
+}
+
+fn efbig() -> [] int {
+    return 27;
+}
+
+pub fn failed_file(code: int) -> [] &static [byte] {
+    if code > file_base() * 2 {
+        return "chain.pem";
+    }
+    if code > file_base() * 3 {
+        return "key.pem";
+    }
+    return "/etc/cancho/mqtt";
+}
+
+pub fn failed_errno(code: int) -> [] int {
+    var c = code;
+    while c <= file_base() {
+        c = c - file_base();
+    }
+    return 0 - c;
+}
+
+// `path` beneath `dir`, read into `into`: how many bytes, or `-errno`.
+fn read_beneath[&d, &p, &o](dir: &d Dir, path: &p [byte], into: &!o [byte]) -> [dir_read, file_read] int {
+    match dirs.open_file(dir, path) {
+        Opened::Ok(f) => {
+            var file = f;
+            var at = 0;
+            var code = 0;
+            var going = true;
+            borrow mut file as &!fh in {
+                while going {
+                    if at == len(into) {
+                        code = 0 - efbig();
+                        going = false;
+                    } else {
+                        match file_read(fh, into[at..len(into)]) {
+                            Read::Got(n) => {
+                                at = at + n;
+                            }
+                            Read::End => {
+                                going = false;
+                            }
+                            Read::Failed(e) => {
+                                code = 0 - e;
+                                going = false;
+                            }
+                        }
+                    }
+                }
+            }
+            file_close(file);
+            if code != 0 {
+                return code;
+            }
+            return at;
+        }
+        Opened::Failed(e) => {
+            return 0 - e;
+        }
+    }
+}
+
+// The identity beneath `dir` given to the engine: a new one when `id` is negative, else replacing identity `id`. Answers the
+// engine's answer (an identity's number or 0, or a refusal code, negative), or a file that could not be read
+// (`file_base()`). Nothing in the engine changes unless both files were read and the engine took them: a refused replacement
+// leaves the old identity serving.
+pub fn load[&h, &d, &n](heap: &!h Heap, dir: &d Dir, links: &!n transport.Links, id: int, now_unix_ms: int) -> [heap, dir_read, file_read] int {
+    var answer = 0;
+    let chain = box_slice(heap, chain_cap(), byte_of(0));
+    let key = box_slice(heap, key_cap(), byte_of(0));
+    borrow mut chain as &!cw in {
+        borrow mut key as &!kw in {
+            let cn = read_beneath(dir, "chain.pem", contents(cw));
+            let kn = read_beneath(dir, "key.pem", contents(kw));
+            if cn < 0 {
+                answer = file_base() + cn;
+            } else if kn < 0 {
+                answer = file_base() * 2 + kn;
+            } else {
+                answer = transport.identity(links, id, contents(cw)[0..cn], contents(kw)[0..kn], now_unix_ms);
+            }
+            // The key's copy overwritten, best effort.
+            bytes.zero(contents(kw));
+        }
+    }
+    unbox_slice(heap, chain);
+    unbox_slice(heap, key);
+    return answer;
+}
+
+// The 32 bytes the engine's generator is seeded with, from the one entropy file `main` may read. 0, or 1 when it gave fewer.
+pub fn entropy[&u, &o](fs: &u Fs("/dev/urandom"), out: &!o [byte]) -> [fs_read("/dev/urandom")] int {
+    if fs_read(fs, "/dev/urandom", out) != 32 {
+        return 1;
+    }
+    return 0;
+}
+
+// The certificate directory, opened once at start: everything after this reads through the handle.
+pub fn open_certs[&c](fs: &c Fs("/etc/cancho/mqtt"), wanted: bool) -> [fs_read("/etc/cancho/mqtt")] option.Option[Dir] {
+    if !wanted {
+        return option.Option::None;
+    }
+    match open_dir(fs, "/etc/cancho/mqtt") {
+        DirOpened::Ok(d) => {
+            return option.Option::Some(d);
+        }
+        DirOpened::Failed(e) => {
+            return option.Option::None;
+        }
+    }
+}
+
+// `load` through the directory an option holds; `file_base() * 3` when there is none.
+pub fn load_held[&h, &d, &n](heap: &!h Heap, held: &d option.Option[Dir], links: &!n transport.Links, id: int, now_unix_ms: int) -> [heap, dir_read, file_read] int {
+    match held {
+        option.Option::Some(dir) => {
+            return load(heap, dir, links, id, now_unix_ms);
+        }
+        option.Option::None => {
+            return file_base() * 3;
+        }
+    }
+}
+
+// Closes a directory handle held in an option, if there is one.
+pub fn close_certs(held: option.Option[Dir]) -> [] int {
+    match held {
+        option.Option::Some(d) => {
+            dir_close(d);
+        }
+        option.Option::None => {
+        }
+    }
+    return 0;
+}

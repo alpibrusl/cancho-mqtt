@@ -8,6 +8,9 @@ import socket
 import time
 import unittest
 
+import os
+
+import harness
 from harness import (Broker, Client, Closed, PINGREQ, connect_packet, publish_packet, subscribe_packet,
                      pkt, s16, puback_packet, records, run, user_line)
 
@@ -22,8 +25,12 @@ def fixture(tag):
 
 
 class Rules(unittest.TestCase):
-    def start(self, *flags, users=None):
-        broker = Broker(*flags, users=users)
+    def start(self, *flags, users=None, tls=False):
+        if tls and not harness.own_certs():
+            if os.environ.get("MQTT_REQUIRE_TLS"):
+                self.fail("the TLS fixtures need to own /etc/cancho/mqtt")
+            self.skipTest("/etc/cancho/mqtt is not empty and not the tests'")
+        broker = Broker(*flags, users=users, tls=tls)
         self.addCleanup(broker.__exit__, None, None, None)
         self.broker = broker
         return broker
@@ -282,6 +289,38 @@ class Rules(unittest.TestCase):
         d.connect("d")
         self.logged("limit.connections")
 
+    @fixture("limit.tls-connections")
+    def test_tls_connections(self):
+        self.start("--tls-connections", "1", tls=True)
+        a = self.broker.tls_client()
+        self.addCleanup(a.close)
+        a.connect("a")
+        over = socket.create_connection(("127.0.0.1", self.broker.tls_port), timeout=3)
+        self.addCleanup(over.close)
+        self.assertEqual(over.recv(16), b"")                 # accepted and closed at once, before any TLS
+        self.logged("limit.tls-connections")
+
+    @fixture("timeout.tls-handshake")
+    def test_tls_handshake(self):
+        self.start("--tls-handshake-timeout", "1", tls=True)
+        silent = socket.create_connection(("127.0.0.1", self.broker.tls_port), timeout=6)
+        self.addCleanup(silent.close)
+        self.assertEqual(silent.recv(16), b"")
+        self.logged("timeout.tls-handshake")
+
+    @fixture("tls.failed")
+    def test_tls_failed(self):
+        self.start(tls=True)
+        s = socket.create_connection(("127.0.0.1", self.broker.tls_port), timeout=3)
+        self.addCleanup(s.close)
+        s.sendall(b"GET / HTTP/1.1\r\nHost: x\r\n\r\n")
+        try:
+            while s.recv(4096):
+                pass
+        except ConnectionResetError:
+            pass
+        self.logged("tls.failed")
+
     @fixture("limit.topic-level")
     def test_topic_level(self):
         self.start()
@@ -433,12 +472,7 @@ class Rules(unittest.TestCase):
         self.assertEqual(status, 0)
         tags = [r["tag"] for r in records(out) if r["type"] == "rule"]
         self.assertEqual(len(tags), 34)
-        # The TLS listener's rules can only be fired once there is a TLS listener (design section 7d): until it is built they
-        # have no fixture, and that is written down here, exactly, so that a rule that gains a fixture, or a new rule that
-        # lacks one, fails this test. When the listener lands this set is emptied and the fixtures are `@fixture`s above.
-        not_yet_firable = {"limit.tls-connections", "timeout.tls-handshake", "tls.failed"}
-        self.assertEqual({tag for tag in tags if tag not in FIXTURES}, not_yet_firable,
-                         "rules without a fixture, other than the TLS listener's, which is not built")
+        self.assertEqual({tag for tag in tags if tag not in FIXTURES}, set(), "rules without a fixture")
         self.assertEqual(sorted(t for t in tags if t in FIXTURES), sorted(FIXTURES), "fixtures without a rule")
         for name in FIXTURES.values():
             self.assertTrue(hasattr(Rules, name))

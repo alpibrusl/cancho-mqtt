@@ -1,28 +1,44 @@
 edition 6;
 
-// `mqtt` -- the plain binary: no file label, no TLS (docs/design.md sections 2 and 7d). The command line, errors, credential
-// table and serving loop are `mqtt.app`'s, shared with `mqtt-tls`; this file splits the world and gives the broker its
-// listener.
+// `mqtt` -- the binary (docs/design.md sections 2 and 7d). The command line, errors, credential table and serving loop are
+// `mqtt.app`'s; this file splits the world, narrows the filesystem to the two paths TLS needs (the entropy file and the
+// certificate directory, named here and nowhere else), sets TLS up when `--tls-port` asks for it, and drives the loop.
 //
 //     mqtt serve [--port N] [--max-connections N] ...   run the broker
 //     mqtt introspect [--output json]                   what this binary is and can do
 //     mqtt skill                                        the same, as an agentskills.io SKILL.md
 //     mqtt rules                                        the connection-level rules, as NDJSON
 
+import std.bytes;
 import std.option;
 import std.signals as sg;
 import toolbox.fail;
 import mqtt.app;
 import mqtt.auth;
+import mqtt.broker;
 import mqtt.config;
+import mqtt.logs;
+import mqtt.tlsfiles;
 import mqtt.transport;
+
+// The first word of what `tlsfiles.load` answered, for the reload record and the refusals: the engine's tag, or the file.
+fn explain(code: int) -> [] &static [byte] {
+    if code >= 0 {
+        return "ok";
+    }
+    if code <= tlsfiles.file_base() {
+        return tlsfiles.failed_file(code);
+    }
+    return transport.refusal_tag(code);
+}
 
 fn main(world: World) -> [] int {
     let Split { io, ffi, fs, heap, args, net, clock, signals } = split(world);
-    // A broker: no files, no foreign code. Standard input is read once, at start, and only with `--auth stdin`.
+    // A broker: no foreign code. The filesystem is narrowed once, to the entropy file and the certificate directory, and
+    // each is used only if `--tls-port` is given.
     release(ffi);
-    release(fs);
-    let claim = narrow(signals, "INT,TERM");
+    let (urandom, certs) = narrow(fs, "/dev/urandom", "/etc/cancho/mqtt");
+    let claim = narrow(signals, "HUP,INT,TERM");
     var status = 1;
     borrow mut heap as &!h in {
         borrow args as &g in {
@@ -65,62 +81,166 @@ fn main(world: World) -> [] int {
                             unbox_slice(h, abuf);
                             unbox_slice(h, ameta);
                         } else {
-                            let port = contents(cr)[config.i_port()];
-                            borrow net as &nn in {
-                                match tcp_listen(nn, port, 1024, 0) {
-                                    Listening::Ok(l) => {
-                                        var listener = l;
-                                        borrow mut listener as &!lh in {
-                                            listener_nonblocking(lh);
+                            let text = contents(cr)[config.i_format()] == 1;
+                            let tport = contents(cr)[config.i_tls_port()];
+                            var tslots = 0;
+                            if tport > 0 {
+                                tslots = contents(cr)[config.i_tls_connections()];
+                            }
+                            var links = transport.open(h, contents(cr)[config.i_connections()], tslots);
+                            borrow mut links as &!lw in {
+                                transport.bound(lw, contents(cr)[config.i_tls_handshakes()], contents(cr)[config.i_tls_rate()], contents(cr)[config.i_tls_timeout()]);
+                            }
+                            // The certificate directory, open for as long as the broker runs (for a reload), when TLS is asked for.
+                            var certdir = option.Option::None;
+                            borrow certs as &cf in {
+                                // The placeholder holds no directory; it is consumed before the answer lands, as a `res` must be.
+                                tlsfiles.close_certs(certdir);
+                                certdir = tlsfiles.open_certs(cf, tport > 0);
+                            }
+                            // TLS: entropy, then the identity. Anything that fails is a refusal before a port is bound.
+                            var tls_status = 0 - 1;
+                            if tport > 0 {
+                                let entropy = box_slice(h, 32, byte_of(0));
+                                borrow mut entropy as &!ew in {
+                                    var drawn = 1;
+                                    borrow urandom as &uf in {
+                                        drawn = tlsfiles.entropy(uf, contents(ew));
+                                    }
+                                    if drawn != 0 {
+                                        tls_status = app.tls_refused(h, i, "tls.entropy-unavailable", "the operating system gave fewer than 32 bytes of entropy", "", "/dev/urandom", 0, text);
+                                    } else {
+                                        borrow mut links as &!lw in {
+                                            transport.seed(lw, contents(ew));
                                         }
-                                        // The listener is the transport's from here on, with the table of connections.
-                                        let links = transport.open(h, 64);
-                                        borrow claim as &sc in {
-                                            match signals_watch(sc) {
-                                                Watching::Ok(wt) => {
-                                                    var watch = wt;
-                                                    borrow mut watch as &!wh in {
-                                                        borrow clock as &c in {
-                                                            match app.begin(h, contents(cr), abuf, ameta, users, dummy, c, links, option.Option::Some(listener), option.Option::None, wh, i) {
-                                                                app.Began::Ok(r) => {
-                                                                    var run = r;
-                                                                    var going = true;
-                                                                    while going {
-                                                                        let (next, mask) = app.round(h, run, contents(cr), c, wh, i);
-                                                                        run = next;
-                                                                        borrow run as &rr in {
-                                                                            going = app.running(rr);
-                                                                        }
-                                                                    }
-                                                                    status = app.finish(h, run, c, i);
-                                                                }
-                                                                app.Began::Failed(code) => {
-                                                                    status = code;
-                                                                }
-                                                            }
-                                                        }
-                                                    }
-                                                    signals_close(watch);
-                                                }
-                                                Watching::Failed(e) => {
-                                                    transport.drop(h, links);
-                                                    listener_close(listener);
-                                                    unbox_slice(h, abuf);
-                                                    unbox_slice(h, ameta);
-                                                    var errs = fail.empty_in(h, app.own_rules());
-                                                    errs = app.problem(h, errs, "io.poller-failed", "the operating system could not watch for stop signals", "", "errno", "signals");
-                                                    status = app.refuse(h, i, errs, contents(cr)[config.i_format()] == 1);
-                                                }
+                                    }
+                                    bytes.zero(contents(ew));
+                                }
+                                unbox_slice(h, entropy);
+                                if tls_status < 0 {
+                                    var code = 0;
+                                    borrow clock as &c in {
+                                        borrow certdir as &cd in {
+                                            borrow mut links as &!lw in {
+                                                code = tlsfiles.load_held(h, cd, lw, 0 - 1, clock_unix_ms(c));
                                             }
                                         }
                                     }
-                                    Listening::Failed(e) => {
-                                        unbox_slice(h, abuf);
-                                        unbox_slice(h, ameta);
-                                        status = app.listen_failed(h, i, port, e, contents(cr)[config.i_format()] == 1);
+                                    if code <= tlsfiles.file_base() * 3 {
+                                        tls_status = app.tls_refused(h, i, "tls.directory-unreadable", "the certificate directory could not be opened", "mount the certificate and key at /etc/cancho/mqtt as chain.pem and key.pem", "/etc/cancho/mqtt", 0, text);
+                                    } else if code <= tlsfiles.file_base() {
+                                        tls_status = app.tls_refused(h, i, "tls.identity-unreadable", "a certificate or key file could not be read", "chain.pem and key.pem must be files in /etc/cancho/mqtt, not links, and readable by this user", explain(code), tlsfiles.failed_errno(code), text);
+                                    } else if code < 0 {
+                                        tls_status = app.tls_refused(h, i, "tls.identity-refused", "the TLS engine refused the certificate or key", "the key must be an unencrypted ECDSA P-256 key matching the first certificate of chain.pem, and the chain unexpired", explain(code), code, text);
                                     }
                                 }
                             }
+                            if tls_status >= 0 {
+                                status = tls_status;
+                                unbox_slice(h, abuf);
+                                unbox_slice(h, ameta);
+                                transport.drop(h, links);
+                            } else {
+                                // The listeners: the plain port if there is one, then the TLS port.
+                                let port = contents(cr)[config.i_port()];
+                                var plain = option.Option::None;
+                                var secure = option.Option::None;
+                                var bound = 0;
+                                var failed = 0;
+                                var failed_port = 0;
+                                borrow net as &nn in {
+                                    if port > 0 {
+                                        match tcp_listen(nn, port, 1024, 0) {
+                                            Listening::Ok(l) => {
+                                                var listener = l;
+                                                borrow mut listener as &!lh in {
+                                                    listener_nonblocking(lh);
+                                                }
+                                                broker.discard(plain);
+                                                plain = option.Option::Some(listener);
+                                            }
+                                            Listening::Failed(e) => {
+                                                failed = e;
+                                                failed_port = port;
+                                            }
+                                        }
+                                    }
+                                    if failed == 0 && tport > 0 {
+                                        match tcp_listen(nn, tport, 1024, 0) {
+                                            Listening::Ok(l) => {
+                                                var listener = l;
+                                                borrow mut listener as &!lh in {
+                                                    listener_nonblocking(lh);
+                                                }
+                                                broker.discard(secure);
+                                                secure = option.Option::Some(listener);
+                                            }
+                                            Listening::Failed(e) => {
+                                                failed = e;
+                                                failed_port = tport;
+                                            }
+                                        }
+                                    }
+                                }
+                                if failed != 0 {
+                                    broker.discard(plain);
+                                    broker.discard(secure);
+                                    transport.drop(h, links);
+                                    unbox_slice(h, abuf);
+                                    unbox_slice(h, ameta);
+                                    status = app.listen_failed(h, i, failed_port, failed, text);
+                                } else {
+                                    borrow claim as &sc in {
+                                        match signals_watch(sc) {
+                                            Watching::Ok(wt) => {
+                                                var watch = wt;
+                                                borrow mut watch as &!wh in {
+                                                    borrow clock as &c in {
+                                                        match app.begin(h, contents(cr), abuf, ameta, users, dummy, c, links, plain, secure, wh, i) {
+                                                            app.Began::Ok(r) => {
+                                                                var run = r;
+                                                                var going = true;
+                                                                while going {
+                                                                    let (next, mask) = app.round(h, run, contents(cr), c, wh, i);
+                                                                    run = next;
+                                                                    if sg.has(mask, sg.sighup()) && tport > 0 {
+                                                                        var code = 0;
+                                                                        borrow certdir as &cd in {
+                                                                            borrow mut run as &!rw in {
+                                                                                code = tlsfiles.load_held(h, cd, app.links(rw), 0, clock_unix_ms(c));
+                                                                            }
+                                                                        }
+                                                                        logs.reload(h, i, text, code >= 0, explain(code), clock_ms(c));
+                                                                    }
+                                                                    borrow run as &rr in {
+                                                                        going = app.running(rr);
+                                                                    }
+                                                                }
+                                                                status = app.finish(h, run, c, i);
+                                                            }
+                                                            app.Began::Failed(code) => {
+                                                                status = code;
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                                signals_close(watch);
+                                            }
+                                            Watching::Failed(e) => {
+                                                broker.discard(plain);
+                                                broker.discard(secure);
+                                                transport.drop(h, links);
+                                                unbox_slice(h, abuf);
+                                                unbox_slice(h, ameta);
+                                                var errs = fail.empty_in(h, app.own_rules());
+                                                errs = app.problem(h, errs, "io.poller-failed", "the operating system could not watch for stop signals", "", "errno", "signals");
+                                                status = app.refuse(h, i, errs, text);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            tlsfiles.close_certs(certdir);
                         }
                     }
                 }
@@ -128,6 +248,8 @@ fn main(world: World) -> [] int {
             }
         }
     }
+    release(urandom);
+    release(certs);
     release(claim);
     release(net);
     release(clock);
