@@ -1,7 +1,7 @@
 edition 6;
 
 // `mqtt` -- the plain binary: no file label, no TLS (docs/design.md sections 2 and 7d). The command line, errors, credential
-// table and serving loop are `mqtt.app`'s, shared with `mqtt-tls`; this file splits the world and gives the broker its
+// table and serving loop are `mqtt.app`'s, also shared by a TLS transport if one is added (design section 7d chose one binary, so there is no second `main`); this file splits the world and gives the broker its
 // listener.
 //
 //     mqtt serve [--port N] [--max-connections N] ...   run the broker

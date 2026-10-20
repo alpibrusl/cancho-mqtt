@@ -3,7 +3,7 @@ edition 5;
 // `mqtt.transport` -- the plain transport: a connection is a socket (docs/design.md section 7d).
 //
 // The broker reaches its connections and its listeners only through this module, so that a second module of the same name,
-// for TLS (tls/transport.cho), can sit in its place in a second binary without a line of `broker.cho` changing. This one is
+// for TLS, can sit in its place without a line of `broker.cho` changing (design section 7d chose one binary: the TLS transport is not built yet). This one is
 // a pass-through to `std.conns`: every function does what the `conns` function of the same name does, and the hooks only
 // TLS needs (`tick`, `pump`, `more`, `wants_write`, `expired`, `reload`) do nothing. `Links` is the
 // connection table and, in another transport, whatever else a connection needs.

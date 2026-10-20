@@ -1,8 +1,7 @@
 edition 6;
 
-// `mqtt.app` -- what both binaries share: the command line, the errors, the credential table and the serving loop. Each
-// binary's own `main` (plain/main.cho, tls/main.cho) splits the world, owns the capabilities its transport needs and calls
-// `app.serve`. `mqtt` -- an MQTT 3.1.1 broker, agent-first (docs/design.md section 5a).
+// `mqtt.app` -- what both binaries share: the command line, the errors, the credential table and the serving loop. The
+// binary's `main` (main.cho) splits the world, owns the capabilities its transport needs and calls `app.serve`. `mqtt` -- an MQTT 3.1.1 broker, agent-first (docs/design.md section 5a).
 //
 //     mqtt serve [--port N] [--max-connections N] ...   run the broker
 //     mqtt introspect [--output json]                   what this binary is and can do
