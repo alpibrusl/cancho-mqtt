@@ -120,6 +120,8 @@ is now a design with its inputs known, below.
 the program the verified subject only once it is. (4) The review (#209), or the README notice. (5) A terminating proxy in front of the
 broker needs none of this and remains the answer where TLS is wanted before these exist.
 
+*(Corrected 2026-10-20: item (3) no longer holds as written. cancho's TLS server has client certificates (cancho #398, mutual TLS), and the compiler has `conn_peer` for per-source limits (`docs/conn-peer.md` in cancho). Both need a compiler pin bump past `5349941` and a design section here before use.)*
+
 **Authority.** As above: bounded file and directory reads and one signal, no `ffi`.
 
 ## Authentication and authorisation
@@ -149,7 +151,7 @@ only that path, and the report says so.
 **Why out.** It is the largest item here and the one that would most change the code. MQTT 5 adds properties on every packet,
 reason codes and reason strings on acknowledgements, session expiry in place of clean-session, topic aliases, shared
 subscriptions, subscription options (no-local, retain-as-published, retain handling), flow control (receive maximum), server
-disconnect with a reason, and enhanced authentication. The codec, the 31 connection rules (each maps to one or more 5 reason
+disconnect with a reason, and enhanced authentication. The codec, the 34 connection rules (31 before the TLS rules were added) (each maps to one or more 5 reason
 codes), the queue entry format, the session model and the memory bounds all change.
 
 **Cost.** A second codec with the first kept, since 3.1.1 clients do not go away; per-connection protocol level; properties
