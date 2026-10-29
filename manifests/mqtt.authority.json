@@ -413,7 +413,5 @@
     "will_size",
     "write_stalled"
   ],
-  "folded_operators": 161,
-  "folded_calls": 1,
   "functions": 573
 }
