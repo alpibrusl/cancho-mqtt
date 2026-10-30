@@ -117,8 +117,14 @@ def gate(name, report, ceilings):
     if ceiling is None:
         return ["%s: no ceiling in ceiling.toml" % name]
     allowed = set(ceiling.get("allow", []))
-    if not report.get("bounded", False):
-        problems.append("%s: bounded is false" % name)
+    # `bounded` is false while a network is held without a literal narrowing (the compiler's report since net-bounds):
+    # the broker listens on the port it is given, so `net_in("")` is in the ceiling (docs/design.md section 2). What
+    # may make the report unbounded is exactly what the ceiling names; anything else, and every foreign symbol, fails.
+    for item in report.get("unbounded_by", []):
+        if item not in allowed:
+            problems.append("%s: unbounded by %s, which the ceiling does not allow" % (name, item))
+    if not report.get("bounded", True) and not report.get("unbounded_by"):
+        problems.append("%s: bounded is false and nothing says why" % name)
     if report.get("foreign_symbols"):
         problems.append("%s: foreign symbols %s" % (name, report["foreign_symbols"]))
     for label in report["labels"]:

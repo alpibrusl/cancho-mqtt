@@ -114,7 +114,7 @@ $ kill -TERM %1; jq -c &#x27;select(.type==&quot;end&quot;) | {ok, complete, pub
 
 # What the compiler proved this program can reach
 $ mqtt introspect | jq -c &#x27;.authority | {bounded, effects}&#x27;
-{&quot;bounded&quot;:true,&quot;effects&quot;:[&quot;args&quot;,&quot;clock&quot;,&quot;conn_accept&quot;,&quot;conn_read&quot;,&quot;conn_write&quot;,&quot;err_write&quot;,&quot;heap&quot;,&quot;io_read&quot;,&quot;io_write&quot;,&quot;net_in&quot;,&quot;poll&quot;,&quot;signals&quot;,&quot;signals_read&quot;]}</code></pre>
+{&quot;bounded&quot;:false,&quot;effects&quot;:[&quot;args&quot;,&quot;clock&quot;,&quot;conn_accept&quot;,&quot;conn_read&quot;,&quot;conn_write&quot;,&quot;err_write&quot;,&quot;heap&quot;,&quot;io_read&quot;,&quot;io_write&quot;,&quot;net_in&quot;,&quot;poll&quot;,&quot;signals&quot;,&quot;signals_read&quot;]}</code></pre>
 <!-- /gen:flow -->
 
 <h2 id="what">What is in it</h2>

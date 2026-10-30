@@ -47,7 +47,8 @@ class Surface(unittest.TestCase):
         doc = self.introspect()
         self.assertEqual(doc["tool"], "mqtt")
         self.assertEqual(doc["output"], "stream")
-        self.assertTrue(doc["authority"]["bounded"])
+        # the report is unbounded exactly by the open listen the ceiling names (design section 2), and by nothing else
+        self.assertEqual(doc["authority"]["unbounded_by"], ['net_in("")'])
         self.assertEqual(doc["authority"]["foreign_symbols"], [])
         names = {l["name"] for l in doc["authority"]["labels"]}
         for forbidden in ("ffi", "net_out", "file_read", "file_write", "fs_read", "fs_write", "dir_read"):
