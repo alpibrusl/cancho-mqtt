@@ -30,7 +30,7 @@ std = true
 
 [dependencies.describe]
 git = "https://github.com/alpibrusl/cancho-tools"
-rev = "25acde07f2424c677fddd6a0bd0510a2d5803084"
+rev = "6085e63a2bc6d91d2f91fa4d6eb72362c4944fe9"
 path = ".cancho-vcs/toolbox.describe"
 
 [[test]]
