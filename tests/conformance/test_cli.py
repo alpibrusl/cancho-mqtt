@@ -47,7 +47,9 @@ class Surface(unittest.TestCase):
         doc = self.introspect()
         self.assertEqual(doc["tool"], "mqtt")
         self.assertEqual(doc["output"], "stream")
-        self.assertTrue(doc["authority"]["bounded"])
+        # 0.1.1 reports the unnarrowed network as unbounded, and names it (cancho docs/net-bounds.md).
+        self.assertFalse(doc["authority"]["bounded"])
+        self.assertEqual(doc["authority"]["unbounded_by"], ['net_in("")'])
         self.assertEqual(doc["authority"]["foreign_symbols"], [])
         names = {l["name"] for l in doc["authority"]["labels"]}
         for forbidden in ("ffi", "net_out", "file_read", "file_write", "fs_read", "fs_write", "dir_read"):

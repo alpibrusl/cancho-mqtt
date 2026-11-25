@@ -56,7 +56,8 @@ def mutants():
     yield "ffi", "src/main.cho", lambda t: edit_main(t, "ffi")
     yield "ceiling lacks io_read", "ceiling.toml", lambda t: t.replace('"io_read", ', "", 1)
     yield "ceiling lacks poll", "ceiling.toml", lambda t: t.replace('"poll", ', "", 1)
-    yield "stale embedded report", "generated/mqtt/built.cho", lambda t: t.replace('\\"bounded\\":true', '\\"bounded\\":false', 1)
+    yield "ceiling forgets the unnarrowed network", "ceiling.toml", lambda t: t.replace('unbounded_by = ["net_in(\\"\\")"]', 'unbounded_by = []', 1)
+    yield "stale embedded report", "generated/mqtt/built.cho", lambda t: t.replace('\\"bounded\\":false', '\\"bounded\\":true', 1)
 
 
 def main():
