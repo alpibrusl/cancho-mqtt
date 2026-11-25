@@ -7,7 +7,8 @@ on:
 
 jobs:
   gate:
-    runs-on: ubuntu-latest
+    # ubuntu-latest is 26.04, where mosquitto does not start (cause not established); 24.04 is what last passed.
+    runs-on: ubuntu-24.04
     timeout-minutes: 30   # a run takes about 4; a hung step must fail, not sit for hours
     permissions:
       contents: read
