@@ -12,7 +12,7 @@ For every [[bin]] in cancho.toml:
 3. pass 2: derive again with the new generated file and require the same
    report -- the fixed point. A string constant adds no label;
 4. require every derived label, spelled with its argument, to be in the bin's
-   `allow` list in ceiling.toml, `bounded` true and no foreign symbol, and no
+   `allow` list in ceiling.toml, `unbounded_by` equal to the ceiling's (0.1.1: the unnarrowed network) and no foreign symbol, and no
    label in FORBIDDEN whatever the ceiling says.
 
     python3 scripts/manifest.py            # regenerate, then check
@@ -117,8 +117,15 @@ def gate(name, report, ceilings):
     if ceiling is None:
         return ["%s: no ceiling in ceiling.toml" % name]
     allowed = set(ceiling.get("allow", []))
-    if not report.get("bounded", False):
-        problems.append("%s: bounded is false" % name)
+    # Since compiler 0.1.1 the report is `bounded: false` while a network label is held unnarrowed, and says which in
+    # `unbounded_by` (cancho docs/net-bounds.md). The ceiling pins that list exactly: `bounded` may be false for these
+    # labels and for no others, and a bounded report that lists none is refused too, so narrowing the network is an
+    # edit to ceiling.toml, reviewed.
+    expected = sorted(ceiling.get("unbounded_by", []))
+    if sorted(report.get("unbounded_by", [])) != expected:
+        problems.append("%s: unbounded_by is %s, the ceiling expects %s" % (name, report.get("unbounded_by"), expected))
+    if report.get("bounded") != (not expected):
+        problems.append("%s: bounded is %s, the ceiling expects %s" % (name, report.get("bounded"), not expected))
     if report.get("foreign_symbols"):
         problems.append("%s: foreign symbols %s" % (name, report["foreign_symbols"]))
     for label in report["labels"]:

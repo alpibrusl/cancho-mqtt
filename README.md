@@ -33,7 +33,7 @@ $ kill -TERM %1; jq -c 'select(.type=="end") | {ok, complete, publishes, deliver
 
 # What the compiler proved this program can reach
 $ mqtt introspect | jq -c '.authority | {bounded, effects}'
-{"bounded":true,"effects":["args","clock","conn_accept","conn_read","conn_write","err_write","heap","io_read","io_write","net_in","poll","signals","signals_read"]}
+{"bounded":false,"effects":["args","clock","conn_accept","conn_read","conn_write","err_write","heap","io_read","io_write","net_in","poll","signals","signals_read"]}
 ```
 <!-- /gen:flow -->
 

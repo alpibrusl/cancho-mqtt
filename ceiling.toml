@@ -3,13 +3,17 @@
 # This is what a person writes and reviews. It is a ceiling, never the
 # authority: the authority is whatever `cancho authority` derives from src/.
 # scripts/manifest.py fails when a derived label is not allowed here, when
-# `bounded` is false, or when any foreign symbol appears. Widening the broker is
+# the report's `unbounded_by` differs from the list below, or when any foreign symbol appears. Widening the broker is
 # an edit to this file: a reviewable diff.
 #
 # Labels are compared as the compiler spells them, argument included. The port
 # is a command-line argument, so it is not known when the program is compiled and
 # the compiler reports `net_in("")`: the broker may listen, and which port is the
 # perimeter's business (cancho docs/net.md section 2).
+#
+# Since compiler 0.1.1 that unnarrowed network makes the report `bounded: false`, and `unbounded_by` names the label
+# (cancho docs/net-bounds.md). That is pinned here, exactly: narrowing the port (narrow(net, ...)) empties the list.
 
 [mqtt]
+unbounded_by = ["net_in(\"\")"]
 allow = ["args", "heap", "net_in(\"\")", "conn_accept", "conn_read", "conn_write", "poll", "clock", "io_write", "io_read", "err_write", "signals(\"INT,TERM\")", "signals_read"]
